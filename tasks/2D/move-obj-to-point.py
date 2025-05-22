@@ -28,6 +28,17 @@ class MyRobot(object):
             'end_effector' : (self.arm.get_tip().get_position(), self.arm.get_tip().get_quaternion()),
             
         }
+    
+    def set_robot_arm_velocities(self, velocities):
+        assert np.all(velocities<=1)  # keep velocity of robot less than 1 for caution 
+        self.arm.set_joint_target_velocities(velocities)
+
+    def actuate_gripper(self, open_percentage , velocity):
+        assert open_percentage >= 0 and open_percentage <=1
+        assert np.all(velocity<=1)  # keep velocity of robot less than 1 for caution 
+        done = self.gripper.actuate(open_percentage, velocity)
+        assert done is True
+
 
 
 
@@ -61,8 +72,8 @@ class Task():
             
     # TODO RETURN observations of point clouds and gripper pose
     def step(self, robot_velocities, gripper_open_percentage, gripper_velocity):
-        self._set_robot_arm_velocities(robot_velocities)
-        self._actuate_gripper(gripper_open_percentage, gripper_velocity)
+        self.robot.set_robot_arm_velocities(robot_velocities)
+        self.robot.actuate_gripper(gripper_open_percentage, gripper_velocity)
         self.pr.step()
 
     def end(self):
@@ -130,16 +141,6 @@ class Task():
     
 
 
-    # move these 2 funcitons to myrobot class
-    def _set_robot_arm_velocities(self, velocities):
-        assert np.all(velocities<=1)  # keep velocity of robot less than 1 for caution 
-        self.robot.arm.set_joint_target_velocities(velocities)
-
-    def _actuate_gripper(self, open_percentage , velocity):
-        assert open_percentage >= 0 and open_percentage <=1
-        assert np.all(velocity<=1)  # keep velocity of robot less than 1 for caution 
-        done = self.robot.gripper.actuate(open_percentage, velocity)
-        assert done is True
 
 
 

@@ -8,8 +8,8 @@ class InstantPolicyAgent:
     def __init__(self):
         pass
 
-    def train(self):
+    def _train(self):
         pass
 
-    def eval(self):
+    def _eval(self):
         pass
