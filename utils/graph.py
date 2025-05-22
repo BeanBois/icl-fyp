@@ -78,9 +78,21 @@ class LocalGraph:
                 self.gripper_state = GripperState.CLOSED 
         else:
             self.gripper_state = gripper_state
-        self._init_edges()
-        
-        
+        self.edges = self._init_edges()
+    
+    # edges are NxN
+    def get_edges(self):
+        return self.edges
+
+    # nodes are 3xN
+    def get_nodes(self):
+        nodes = np.zeros(self.num_gn + self.num_pcn)
+        nodes[:self.num_gn] = self.end_effector_pose
+        nodes[self.num_gn:] = np.array([
+            pc.pos for pc in self.point_clouds
+        ])
+        return nodes     
+    
     # aux functions
     def _init_pointclouds_nodes(self, point_clouds):
         point_clouds_nodes = []
@@ -93,6 +105,7 @@ class LocalGraph:
                     rgb
                 )
             )
+        self.num_pcn = len(point_clouds_nodes)
         return np.array(point_clouds_nodes)
     
     def _init_robot_nodes(self,gripper_points):
@@ -103,11 +116,13 @@ class LocalGraph:
                     gp
                 )
             )
+        self.num_gn = len(gripper_nodes)
         return np.array(gripper_nodes) 
     
-    # how to init edges
+    # according to image, it seems to be a fully connected graph
     def _init_edges(self):
-        pass
+        return np.random.random((self.num_gn+self.num_pcn, self.num_gn+self.num_pcn))
+
 
 
 
