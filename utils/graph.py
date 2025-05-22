@@ -2,6 +2,7 @@ import numpy as np
 from types import List, Tuple
 from enum import Enum
 
+
 class GripperState(Enum):
     OPENED = 0
     CLOSED = 1
@@ -65,26 +66,63 @@ class RobotNode(Node):
 
 
 
+# how do we construct local graphs?
 class LocalGraph:
 
-    def __init__(self, M, num_gipper_nodes):
-        self.point_clouds = set(M)
-        self.end_effector_pose = np.zeros(num_gipper_nodes) # in world frame
-        self.gripper_state = GripperState.OPENED 
+    def __init__(self, point_clouds, gripper_points, gripper_state = None):
+        self.point_clouds = self._init_pointclouds_nodes(point_clouds)
+        self.end_effector_pose = self._init_robot_nodes(gripper_points)
+        if gripper_state is None:
+            self.gripper_state = GripperState.OPENED 
+            if np.random.random() <= 0.5: 
+                self.gripper_state = GripperState.CLOSED 
+        else:
+            self.gripper_state = gripper_state
+        self._init_edges()
+        
+        
+    # aux functions
+    def _init_pointclouds_nodes(self, point_clouds):
+        point_clouds_nodes = []
+        for pc in point_clouds:
+            pos = pc[:3]
+            rgb = pc[3:]
+            point_clouds_nodes.append(
+                PointCloudNode(
+                    pos,
+                    rgb
+                )
+            )
+        return np.array(point_clouds_nodes)
+    
+    def _init_robot_nodes(self,gripper_points):
+        gripper_nodes = []
+        for gp in gripper_points:
+            gripper_nodes.append(
+                RobotNode(
+                    gp
+                )
+            )
+        return np.array(gripper_nodes) 
+    
+    # how to init edges
+    def _init_edges(self):
+        pass
 
-        if np.random.random() <= 0.5: 
-            self.gripper_state = GripperState.CLOSED 
+
+
+
              
 class ActionGraph:
 
     # actions graphs are constructed from a given local_graph, where as if the actions were executed and the gripper moved: G_a_l(P, T_WE x T_ea, a_g)
     def __init__(self, local_graph,actions):
-
+        pass
 
 class ContextGraph:
 
     def __init__(self):
-        self.graphs = list() # sequence of graphs
+        self.graphs = list() # sequence of local graphs
         self.action_graphs = list() # seq of actions inbetween graphs
         self._interleave()
 

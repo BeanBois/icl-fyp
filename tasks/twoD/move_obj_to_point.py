@@ -22,11 +22,11 @@ class MyRobot(object):
         self.arm = arm
         self.gripper = gripper
     
-    def get_positions(self):
+    def get_state(self):
         return{
             'arm' : self.arm.get_joint_positions(),
-            'end_effector' : (self.arm.get_tip().get_position(), self.arm.get_tip().get_quaternion()),
-            
+            'end-effector' : (self.arm.get_tip().get_position(), self.arm.get_tip().get_quaternion()),
+            'gripper-state': self.gripper.get_state()
         }
     
     def set_robot_arm_velocities(self, velocities):
@@ -64,17 +64,19 @@ class Task():
 
         # init objective
         self.end_position = np.random(3)        
-        self.objective = lambda position : position == self.end_position
+        self.objective = lambda  : self.obj.get_position() == self.end_position
 
         # init end condition 
-        self.end_condition = lambda : self.objective() or self.timestep == max_step
+        self.end_condition = lambda  : self.objective() or self.timestep == max_step
+        return self._get_obs()
 
-            
-    # TODO RETURN observations of point clouds and gripper pose
+
     def step(self, robot_velocities, gripper_open_percentage, gripper_velocity):
         self.robot.set_robot_arm_velocities(robot_velocities)
         self.robot.actuate_gripper(gripper_open_percentage, gripper_velocity)
         self.pr.step()
+        self.timestep +=1
+        return self._get_obs()
 
     def end(self):
         self.pr.stop()
@@ -136,30 +138,35 @@ class Task():
         valid_colors = rgb_flattened[valid_indices]
 
         # Combine points and colors
-        colored_point_cloud = np.hstack((valid_points, valid_colors))
+        colored_point_cloud = np.hstack((valid_points, valid_colors))        
         return colored_point_cloud
+
+    def _transform_pointclouds_to_world(self, pointclouds):
+        sensor_pose = self.vision_sensor.get_matrix()
+        rotation = sensor_pose[:3, :3]
+        translation = sensor_pose[:3, 3]
+        
+        # Apply transformation
+        world_points = pointclouds @ rotation.T + translation
+        return world_points
     
+    def _get_obs(self):
+        point_clouds = self._get_point_clouds()
+        w_point_clouds = self._transform_pointclouds_to_world(point_clouds)
+        robot_state = self.robot.get_state()
+        return {
+            'point-clouds' : w_point_clouds,
+            'robot-state' : robot_state,
+            'object-position' : self.obj.get_position(),
+            'time-step' : self.timestep,
+            'objective' : self.objective(),
+            'done' : self.end_condition(),
+        }
 
 
 
 
 
-def transform_points_to_world(points, sensor_pose):
-    """Transform points from sensor frame to world frame"""
-    # Extract rotation matrix and translation
-    rotation = sensor_pose[:3, :3]
-    translation = sensor_pose[:3, 3]
-    
-    # Apply transformation
-    world_points = points @ rotation.T + translation
-    
-    return world_points
-
-    # # Get sensor pose
-    # sensor_pose = vision_sensor.get_matrix()
-
-    # # Transform point cloud to world coordinates
-    # world_points = transform_points_to_world(point_cloud, sensor_pose)
 
 
 
