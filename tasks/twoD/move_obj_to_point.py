@@ -29,9 +29,36 @@ class MyRobot(object):
             'gripper-state': self.gripper.get_open_amount()
         }
     
-    def set_robot_arm_velocities(self, velocities):
+    def set_robot_arm_velocities(self, velocities, wait_for_movement=True, timeout=5.0):
         assert np.all(velocities<=1)  # keep velocity of robot less than 1 for caution 
-        self.arm.set_joint_target_velocities(velocities)
+        # self.arm.set_joint_target_velocities(velocities)
+        if wait_for_movement:
+            # Get initial position
+            initial_positions = self.arm.get_joint_positions()
+            
+            # Set velocities
+            self.arm.set_joint_target_velocities(velocities)
+            
+            # Wait until robot actually moves
+            start_time = time.time()
+            movement_threshold = 0.001  # Small threshold to detect movement
+            
+            while True:
+                current_positions = self.arm.get_joint_positions()
+                position_diff = np.abs(np.array(current_positions) - np.array(initial_positions))
+                
+                # Check if any joint has moved beyond threshold
+                if np.any(position_diff > movement_threshold):
+                    break
+                    
+                # Timeout check
+                if time.time() - start_time > timeout:
+                    print("Warning: Robot movement timeout")
+                    break
+                    
+                time.sleep(0.01)  # Small delay
+        else:
+            self.arm.set_joint_target_velocities(velocities)
 
     def actuate_gripper(self, open_percentage , velocity):
         assert open_percentage >= 0 and open_percentage <=1
