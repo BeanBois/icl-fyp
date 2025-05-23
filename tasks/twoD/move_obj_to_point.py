@@ -45,7 +45,7 @@ class MyRobot(object):
 
 class Task():
     # TODO RETURN observations of point clouds and gripper pose
-    def __init__(self,scene, max_step = 20):
+    def __init__(self, scene, max_step = 10):
         self.pr = PyRep()
         self.timestep = 0
 
@@ -171,7 +171,7 @@ class Task():
 
 
 if __name__  == "__main__":
-    task = Task()
+    task = Task(scene='scene_panda_reach_target.ttt')
     import time
     time.sleep(5)
     for _ in range(10):

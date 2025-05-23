@@ -16,7 +16,7 @@ class InstantPolicyAgent:
     def _eval(self):
         pass
 
-# 
+# operates on local subgraphs G_l and propagates initial information about the point cloud observations to the gripper nodes
 class RhoNN(nn.Module):
 
     def __init__(self, input_size, hidden_size, output_size):
@@ -27,6 +27,7 @@ class RhoNN(nn.Module):
         self.dropout = nn.Dropout(0.2)
 
 
+# additionally propagates information through the demonstrated trajectories and allows all the relvant information from the context to be gathered at the gripper nodes of the current subgraph 
 class PhiNN(nn.Module):
 
     def __init__(self, input_size, hidden_size, output_size):
@@ -36,6 +37,7 @@ class PhiNN(nn.Module):
         self.fc3 = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(0.2)
 
+# propagates information to nodes in the graph representing the actions
 class PsiNN(nn.Module):
 
     def __init__(self, input_size, hidden_size, output_size):
