@@ -170,4 +170,13 @@ class Task():
 
 
 
-
+if __name__  == "__main__":
+    task = Task()
+    import time
+    time.sleep(5)
+    for _ in range(10):
+        robot_vel = np.random.random((6))
+        gripper_open_pecentage = int(np.random.random() <= 0.5)
+        gripper_velocity = 0.1
+        task.step(robot_vel, gripper_open_percentage, gripper_velocity)
+    task.end()
