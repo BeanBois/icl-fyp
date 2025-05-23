@@ -26,7 +26,7 @@ class MyRobot(object):
         return{
             'arm' : self.arm.get_joint_positions(),
             'end-effector' : (self.arm.get_tip().get_position(), self.arm.get_tip().get_quaternion()),
-            'gripper-state': self.gripper.get_state()
+            'gripper-state': self.gripper.get_open_amount()
         }
     
     def set_robot_arm_velocities(self, velocities):
@@ -37,7 +37,7 @@ class MyRobot(object):
         assert open_percentage >= 0 and open_percentage <=1
         assert np.all(velocity<=1)  # keep velocity of robot less than 1 for caution 
         done = self.gripper.actuate(open_percentage, velocity)
-        assert done is True
+        # assert done is True
 
 
 
@@ -65,11 +65,10 @@ class Task():
 
         # init objective
         self.end_position = [2,2,0]        
-        self.objective = lambda  : self.obj.get_position() == self.end_position
+        self.objective = lambda  : np.all(self.obj.get_position() == self.end_position)
 
         # init end condition 
         self.end_condition = lambda  : self.objective() or self.timestep == max_step
-        return self._get_obs()
 
 
     def step(self, robot_velocities, gripper_open_percentage, gripper_velocity):
@@ -106,7 +105,6 @@ class Task():
     
     def _make_robot(self):
         arm = Panda()  # Get the panda from the scene
-        print(dir(arm))
         gripper = PandaGripper()
         robot = MyRobot(arm,gripper)
 
@@ -140,13 +138,16 @@ class Task():
         rgb_flattened = rgb_data.reshape(height*width, 3)
 
         # Filter out invalid points (NaN values)
-        valid_indices = ~np.isnan(point_cloud).any(axis=1)
-        valid_points = point_cloud[valid_indices]
-        valid_colors = rgb_flattened[valid_indices]
+        # valid_indices = ~np.isnan(point_cloud).any(axis=1)
+        # valid_points = point_cloud[valid_indices]
+        # valid_colors = rgb_flattened[valid_indices]
+        valid_points = point_cloud
+        valid_colors = rgb_flattened
 
         # Combine points and colors
-        colored_point_cloud = np.hstack((valid_points, valid_colors))        
-        return colored_point_cloud
+        # colored_point_cloud = np.hstack((valid_points, valid_colors))        
+        # return colored_point_cloud
+        return valid_points
 
     def _transform_pointclouds_to_world(self, pointclouds):
         sensor_pose = self.vision_sensor.get_matrix()
@@ -178,12 +179,13 @@ class Task():
 
 
 if __name__  == "__main__":
-    task = Task(scene='scene_panda_reach_target.ttt')
+    task = Task(scene='scene_panda_reach_target.ttt', max_step=100)
     import time
 
-    for _ in range(10):
-        robot_vel = np.random.random((6))
-        gripper_open_pecentage = int(np.random.random() <= 0.5)
+    for _ in range(100):
+        robot_vel = np.random.random((7))
+        print(robot_vel)
+        gripper_open_percentage = int(np.random.random() <= 0.5)
         gripper_velocity = 0.1
         task.step(robot_vel, gripper_open_percentage, gripper_velocity)
     task.end()
