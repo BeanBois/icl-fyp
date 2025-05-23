@@ -57,13 +57,14 @@ class Task():
         self.robot = self._make_robot()
 
         # init cameras
+        self._make_cameras()
 
         # init object
-        self.start_position = np.random(3)
+        self.start_position = [1,1,0]
         self.obj = self._make_object(self.start_position)
 
         # init objective
-        self.end_position = np.random(3)        
+        self.end_position = [2,2,0]        
         self.objective = lambda  : self.obj.get_position() == self.end_position
 
         # init end condition 
@@ -86,11 +87,15 @@ class Task():
     def _make_object(
             self,
             position,
-            obj_type=PrimitiveShape.CYLINDER, 
-            color=[100,100,100], 
-            size=[5, 5, 5],
+            obj_type=PrimitiveShape.SPHERE, 
+            color=[1,0, 0.1, 0.1], 
+            size=[0.05, 0.05, 0.05],
         ):
-            obj = Shape.create(obj_type,color,size,position)
+            obj = Shape.create(type=obj_type,
+                                color=color,
+                                size= size,
+                                static = False,
+                                respondable = True)
             obj.set_color(color)
             obj.set_position(position)
             assert obj is not None 
@@ -101,13 +106,14 @@ class Task():
     
     def _make_robot(self):
         arm = Panda()  # Get the panda from the scene
-        print(arm.gripper)
+        print(dir(arm))
         gripper = PandaGripper()
         robot = MyRobot(arm,gripper)
 
         return robot
 
     def _make_cameras(self):
+        VisionSensor.create(resolution=[512,512])
         self.vision_sensor = VisionSensor('Vision_sensor')
         
         # cameras config
@@ -174,7 +180,7 @@ class Task():
 if __name__  == "__main__":
     task = Task(scene='scene_panda_reach_target.ttt')
     import time
-    time.sleep(5)
+
     for _ in range(10):
         robot_vel = np.random.random((6))
         gripper_open_pecentage = int(np.random.random() <= 0.5)
