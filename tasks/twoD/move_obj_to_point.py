@@ -101,6 +101,7 @@ class Task():
     
     def _make_robot(self):
         arm = Panda()  # Get the panda from the scene
+        print(arm.gripper)
         gripper = PandaGripper()
         robot = MyRobot(arm,gripper)
 
