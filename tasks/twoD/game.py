@@ -2,6 +2,7 @@ import pygame
 import math
 import random
 import sys
+from enum import Enum 
 
 # Initialize Pygame
 pygame.init()
@@ -17,14 +18,20 @@ BLUE = (0, 0, 255)
 YELLOW = (255, 255, 0)
 PURPLE = (128, 0, 128)
 
+
+class PlayerState(Enum):
+    NOT_EATING = 1
+    EATING = 2
+
 class Player:
-    def __init__(self, x, y):
+    def __init__(self, x, y, state : PlayerState = PlayerState.NOT_EATING):
         self.x = x
         self.y = y
         self.angle = 0  # Facing direction in degrees
         self.size = 15
         self.speed = 3
         self.rotation_speed = 5
+        self.state = state
         
     def move_forward(self):
         # Convert angle to radians and move in facing direction
@@ -53,6 +60,12 @@ class Player:
         self.angle += self.rotation_speed
         self.angle %= 360
     
+    def alternate_state(self):
+        if self.state is PlayerState.EATING:
+            self.state = PlayerState.NOT_EATING
+        else:
+            self.state = PlayerState.EATING
+
     def get_rect(self):
         return pygame.Rect(self.x - self.size, self.y - self.size, 
                           self.size * 2, self.size * 2)
@@ -72,7 +85,11 @@ class Player:
         back_right_y = self.y + self.size * math.sin(rad - 2.4)
         
         points = [(front_x, front_y), (back_left_x, back_left_y), (back_right_x, back_right_y)]
-        pygame.draw.polygon(screen, BLUE, points)
+
+        if self.state is PlayerState.NOT_EATING:
+            pygame.draw.polygon(screen, BLUE, points)
+        else:
+            pygame.draw.polygon(screen, PURPLE, points)
 
 class EdibleObject:
     def __init__(self, x, y, width=20, height=20):
@@ -105,6 +122,7 @@ class Obstacle:
         pygame.draw.rect(screen, RED, self.get_rect())
 
 class Game:
+    
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("2D Game - Eat or Avoid")
@@ -177,6 +195,8 @@ class Game:
                 self.player.rotate_left()
             if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
                 self.player.rotate_right()
+            if keys[pygame.K_SPACE]:
+                self.player.alternate_state()
         
         return True
     
@@ -193,7 +213,7 @@ class Game:
         
         # Check collision with edibles
         for edible in self.edibles:
-            if not edible.eaten and player_rect.colliderect(edible.get_rect()):
+            if not edible.eaten and player_rect.colliderect(edible.get_rect()) and self.player.state is PlayerState.EATING:
                 edible.eaten = True
         
         # Check win conditions
