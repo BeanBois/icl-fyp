@@ -1,29 +1,40 @@
-import pygame
 import math
 import random
+from collections import defaultdict
 import sys
 from enum import Enum 
+
+import pygame
+import numpy as np 
+
+
+
+# DEBUGGING
+import pdb
 
 # Initialize Pygame
 pygame.init()
 
 # Constants
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
-YELLOW = (255, 255, 0)
-PURPLE = (128, 0, 128)
+SCREEN_WIDTH = 400
+SCREEN_HEIGHT = 300
+WHITE = (255, 255, 255) # WHITE SPACE
+BLACK = (0, 0, 0) # EDGE FOR GOAL
+RED = (255, 0, 0) # COLOR FOR OBSTACLES
+GREEN = (0, 255, 0) # COLOR FOR EDIBLES
+BLUE = (0, 0, 255) # COLOR FOR PLAYER NOT IN EATING STATE
+PURPLE = (128, 0, 128) # COLOR FOR PLAYER IN EATING STATE
+YELLOW = (255, 255, 0) # COLOR FOR GOAL
 
+NUM_OF_EDIBLE_OBJECT = 1
+NUM_OF_OBSTACLES = 1
 
 class PlayerState(Enum):
     NOT_EATING = 1
     EATING = 2
 
 class Player:
+    
     def __init__(self, x, y, state : PlayerState = PlayerState.NOT_EATING):
         self.x = x
         self.y = y
@@ -62,14 +73,26 @@ class Player:
     
     def alternate_state(self):
         if self.state is PlayerState.EATING:
-            self.state = PlayerState.NOT_EATING
-        else:
+            self.state = PlayerState.NOT_EATING 
+        elif self.state is PlayerState.NOT_EATING:
             self.state = PlayerState.EATING
-
+        else:
+            pass
+ 
     def get_rect(self):
         return pygame.Rect(self.x - self.size, self.y - self.size, 
                           self.size * 2, self.size * 2)
     
+    # TL, TR, BR, BL, Centre dictonary
+    def get_pos(self):
+        return {
+            'top-left': (self.x, self.y),
+            'top-right' : (self.x + self.size, self.y),
+            'bot-right' : (self.x + self.size, self.y + self.size),
+            'bot-left' : (self.x, self.y + self.size),
+            'centre' : (self.x + self.size // 2, self.y + self.size // 2),
+        }
+
     def draw(self, screen):
         # Draw player as a triangle pointing in the direction it's facing
         rad = math.radians(self.angle)
@@ -107,6 +130,16 @@ class EdibleObject:
         if not self.eaten:
             pygame.draw.ellipse(screen, GREEN, self.get_rect())
 
+    # TL, TR, BR, BL, CENTROID dictonary
+    def get_pos(self):
+        return {
+            'top-left': (self.x - self.width//2, self.y - self.height//2),
+            'top-right': (self.x + self.width//2, self.y - self.height//2),
+            'bot-right': (self.x + self.width//2, self.y + self.height//2),
+            'bot-left': (self.x - self.width//2, self.y + self.height//2),
+            'centre': (self.x, self.y),
+        }
+
 class Obstacle:
     def __init__(self, x, y, width=40, height=40):
         self.x = x
@@ -120,10 +153,27 @@ class Obstacle:
     
     def draw(self, screen):
         pygame.draw.rect(screen, RED, self.get_rect())
+    
+    # TL, TR, BR, BL, CENTROID dictonary
+    def get_pos(self):
+        return {
+            'top-left': (self.x - self.width//2, self.y - self.height//2),
+            'top-right': (self.x + self.width//2, self.y - self.height//2),
+            'bot-right': (self.x + self.width//2, self.y + self.height//2),
+            'bot-left': (self.x - self.width//2, self.y + self.height//2),
+            'centre': (self.x, self.y),
+        }
 
+class GameObjective(Enum):
+    EAT_ALL = 1
+    REACH_GOAL = 2
+
+    
 class Game:
     
-    def __init__(self):
+    def __init__(self, num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES):
+        self.num_edibles = num_edibles
+        self.num_obstacles = num_obstacles
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("2D Game - Eat or Avoid")
         self.clock = pygame.time.Clock()
@@ -139,43 +189,53 @@ class Game:
         self.game_over = False
         self.game_won = False
         self.font = pygame.font.Font(None, 36)
-        
+
         self.setup_game()
-    
+
     def setup_game(self):
         # Randomly choose objective
-        self.objective = random.choice(["eat_all", "reach_goal"])
+        self.objective = random.choice([GameObjective.EAT_ALL, GameObjective.REACH_GOAL])
         
-        # Create edible objects
-        for _ in range(5):
-            x = random.randint(50, SCREEN_WIDTH - 50)
-            y = random.randint(50, SCREEN_HEIGHT - 50)
-            # Make sure edibles don't spawn too close to player
-            while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 100:
+        # Create edible objects if objective is eat all edibles
+        if self.objective is GameObjective.EAT_ALL:
+            for _ in range(self.num_edibles):
                 x = random.randint(50, SCREEN_WIDTH - 50)
                 y = random.randint(50, SCREEN_HEIGHT - 50)
-            
-            width = random.randint(15, 25)
-            height = random.randint(15, 25)
-            self.edibles.append(EdibleObject(x, y, width, height))
+                # Make sure edibles don't spawn too close to player
+                while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 100:
+                    x = random.randint(50, SCREEN_WIDTH - 50)
+                    y = random.randint(50, SCREEN_HEIGHT - 50)
+                
+                width = random.randint(15, 25)
+                height = random.randint(15, 25)
+                self.edibles.append(EdibleObject(x, y, width, height))
         
-        # Create obstacles
-        for _ in range(4):
-            x = random.randint(50, SCREEN_WIDTH - 50)
-            y = random.randint(50, SCREEN_HEIGHT - 50)
-            # Make sure obstacles don't spawn too close to player
-            while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 150:
+        # Create obstacles and set goal position if objective is reach goal
+        if self.objective is GameObjective.REACH_GOAL:
+            for _ in range(self.num_obstacles):
                 x = random.randint(50, SCREEN_WIDTH - 50)
                 y = random.randint(50, SCREEN_HEIGHT - 50)
-            
-            width = random.randint(30, 50)
-            height = random.randint(30, 50)
-            self.obstacles.append(Obstacle(x, y, width, height))
+                # Make sure obstacles don't spawn too close to player
+                while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 150:
+                    x = random.randint(50, SCREEN_WIDTH - 50)
+                    y = random.randint(50, SCREEN_HEIGHT - 50)
+                
+                width = random.randint(30, 50)
+                height = random.randint(30, 50)
+                self.obstacles.append(Obstacle(x, y, width, height))
         
-        # Set goal position if objective is "reach_goal"
-        if self.objective == "reach_goal":
             self.goal_position = (SCREEN_WIDTH - 100, SCREEN_HEIGHT - 100)
-    
+
+        # Command line print to inform player
+        print("-" * 25)
+        objective_str = None
+        if self.objective is GameObjective.EAT_ALL:
+            objective_str = "eat all food"
+        else:
+            objective_str = "reach goal"
+        print(f"Welcome to the game, your objective is to {objective_str}")
+        print("-" * 25)
+
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -183,6 +243,8 @@ class Game:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_r and (self.game_over or self.game_won):
                     self.restart_game()
+                elif event.key == pygame.K_SPACE and not self.game_over and not self.game_won:
+                    self.player.alternate_state()
         
         # Handle continuous key presses
         keys = pygame.key.get_pressed()
@@ -195,8 +257,7 @@ class Game:
                 self.player.rotate_left()
             if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
                 self.player.rotate_right()
-            if keys[pygame.K_SPACE]:
-                self.player.alternate_state()
+
         
         return True
     
@@ -217,10 +278,10 @@ class Game:
                 edible.eaten = True
         
         # Check win conditions
-        if self.objective == "eat_all":
+        if self.objective == GameObjective.EAT_ALL:
             if all(edible.eaten for edible in self.edibles):
                 self.game_won = True
-        elif self.objective == "reach_goal":
+        elif self.objective == GameObjective.REACH_GOAL:
             if self.goal_position:
                 goal_rect = pygame.Rect(self.goal_position[0] - 25, self.goal_position[1] - 25, 50, 50)
                 if player_rect.colliderect(goal_rect):
@@ -239,49 +300,22 @@ class Game:
         self.player.draw(self.screen)
         
         # Draw goal if objective is "reach_goal"
-        if self.objective == "reach_goal" and self.goal_position:
+        if self.objective == GameObjective.REACH_GOAL and self.goal_position:
             pygame.draw.rect(self.screen, YELLOW, 
                            (self.goal_position[0] - 25, self.goal_position[1] - 25, 50, 50))
             pygame.draw.rect(self.screen, BLACK, 
                            (self.goal_position[0] - 25, self.goal_position[1] - 25, 50, 50), 3)
         
-        # Draw UI
-        objective_text = "Objective: "
-        if self.objective == "eat_all":
-            objective_text += "Eat all green objects!"
-            eaten_count = sum(1 for edible in self.edibles if edible.eaten)
-            progress_text = f"Eaten: {eaten_count}/{len(self.edibles)}"
-        else:
-            objective_text += "Avoid red obstacles and reach yellow goal!"
-            progress_text = "Navigate carefully to the goal!"
-        
-        text_surface = pygame.font.Font(None, 24).render(objective_text, True, BLACK)
-        self.screen.blit(text_surface, (10, 10))
-        
-        progress_surface = pygame.font.Font(None, 24).render(progress_text, True, BLACK)
-        self.screen.blit(progress_surface, (10, 35))
-        
-        # Draw controls
-        controls = "Controls: Arrow Keys/WASD to move and rotate"
-        controls_surface = pygame.font.Font(None, 20).render(controls, True, BLACK)
-        self.screen.blit(controls_surface, (10, SCREEN_HEIGHT - 25))
-        
+
+        message = None 
         # Draw game over/win message
         if self.game_over:
             message = "GAME OVER! You hit an obstacle. Press R to restart."
-            text_surface = self.font.render(message, True, RED)
-            text_rect = text_surface.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
-            pygame.draw.rect(self.screen, WHITE, text_rect.inflate(20, 10))
-            pygame.draw.rect(self.screen, BLACK, text_rect.inflate(20, 10), 2)
-            self.screen.blit(text_surface, text_rect)
+            print(message)
         
         elif self.game_won:
             message = "YOU WIN! Objective completed! Press R to restart."
-            text_surface = self.font.render(message, True, GREEN)
-            text_rect = text_surface.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
-            pygame.draw.rect(self.screen, WHITE, text_rect.inflate(20, 10))
-            pygame.draw.rect(self.screen, BLACK, text_rect.inflate(20, 10), 2)
-            self.screen.blit(text_surface, text_rect)
+            print(message)
         
         pygame.display.flip()
     
@@ -294,6 +328,7 @@ class Game:
         self.game_won = False
         self.setup_game()
     
+    # RUNS THE WHOLE GAME 
     def run(self):
         running = True
         while running:
@@ -305,7 +340,163 @@ class Game:
         pygame.quit()
         sys.exit()
 
+    def get_screen_pixels(self):
+        pixels = [
+            [ np.array(self.screen.get_at((x,y))[:3]) for y in range(SCREEN_HEIGHT)] for x in range(SCREEN_WIDTH)
+        ]
+
+        return np.array(pixels)
+
+
+class GameInterface:
+
+    def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10):
+        self.game = Game( num_edibles=num_edibles, num_obstacles=num_obstacles)
+        self.running = True
+        self.t = 0
+        self.num_sampled_points = num_sampled_points
+
+    def start_game(self):
+        self.game.draw()
+        self.game.clock.tick(60)
+        obs = self.get_obs()
+        return obs 
+  
+    def restart_game(self):
+        self.game.restart_game()
+        self.running = True
+        self.t = 0
+
+    # we do furthest point sampling algorithm to retrieve a cloud of point clouds
+    # These sampled ppoint clouds is then used to create a graph representation 
+    def get_obs(self):
+
+        # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
+        raw_dense_point_clouds = self.game.get_screen_pixels()
+        raw_coords = np.array([[(x,y) for y in range(SCREEN_HEIGHT) ]  for x in range(SCREEN_WIDTH)])
+
+        # To ensure that only objects point clouds are picked up, we remove all white pixels
+        mask = ~np.all(raw_dense_point_clouds == [255, 255, 255], axis=2)
+        valid_points = np.where(mask)
+        dense_point_clouds = raw_dense_point_clouds[valid_points]
+        coords = raw_coords[valid_points]
+
+        # To simulate FPSA, we randomly select an initial point from coords ranging from p in (SCREEN_WIDTH X SCREEN_HEIGHT)  
+        selected_indices = []
+        initial_coord = random.randint(0, len(coords) - 1)
+        selected_indices.append(initial_coord)
+
+        # then perform FPSA to collect M points
+        for _ in range(self.num_sampled_points-1):
+            if len(selected_indices) >= len(coords):
+                break
+
+            selected_coords = coords[selected_indices]
+        
+            # Calculate minimum distance from each unselected point to nearest selected point
+            max_min_distance = -1
+            best_idx = -1
+            
+            for i, coord in enumerate(coords):
+                if i in selected_indices:
+                    continue
+                    
+                # Calculate distances to all selected points
+                distances = np.linalg.norm(selected_coords - coord, axis=1)
+                min_distance = np.min(distances)
+                
+                # Keep track of point with maximum minimum distance
+                if min_distance > max_min_distance:
+                    max_min_distance = min_distance
+                    best_idx = i
+            
+            if best_idx != -1:
+                selected_indices.append(best_idx)
+
+        # Categorise/Segment M points according to colour (sidestepping geometric encoder)
+        selected_coords = coords[selected_indices]
+        selected_colors = dense_point_clouds[selected_indices]
+        color_segments = defaultdict(list)
+        agent_state = None
+        if BLUE in selected_colors:
+            agent_state = 'not-eating'
+        elif PURPLE in selected_colors:
+            agent_state = 'eating'
+        
+        for i, (coord, color) in enumerate(zip(selected_coords, selected_colors)):
+            # Convert RGB to a hashable tuple for grouping
+            # color_key = tuple(color.astype(int))
+            color_key = None
+            color = tuple(color)
+            if color == BLACK or color == YELLOW:
+                color_key = 'goal'
+            elif color == GREEN:
+                color_key = 'edible'
+            elif color == RED:
+                color_key = 'obstacle'
+            elif color == BLUE or color == PURPLE:
+                color_key = 'agent'
+            else:
+                color_key = 'unknown'
+            color_segments[color_key].append({
+                'coord': coord,
+                'index': i,
+                'color': color
+            })
+        
+
+        
+        return {
+            'point-clouds': dict(color_segments),
+            'agent-state' : agent_state,
+            'done': self.running,
+            'time' : self.t
+        }
+
+    def step(self):
+        if self.running:
+            self.t += 1
+            self.running = self.game.handle_events()
+            self.game.update()
+            self.game.draw()
+            self.game.clock.tick(60)
+            obs = self.get_obs()
+            return obs 
+        else:
+            pygame.quit()
+            sys.exit()
+
+    # return dictionary of point clouds taken from screen
+    # for now we just return the corners and centroid of each object
+    # each point cloud encodes the position and colour of the particular pixel 
+    # belows will be implemented in another function by class Subgraph and Graph within the agent file 
+        # the collected point clouds are used to construct a sub-graph which represents the object geometry/shape 
+            # this edge type will be intra-object edge-type, and its feature also includes a distance based on euc-distance for now
+        # then to construct the local graph, corners of each object are fully connected to all other corners of other object, and centroid are connected to other centroids
+            # this edge type will be inter-object edge-type, and its feature also includes a distance based on euc-distance for now
+    def _get_game_obj_pos(self):
+        # first get player 
+        player_pos = self.game.player.get_pos()
+
+        # then get obstacles and object 
+        obstacles = [obj.get_pos() for obj in self.game.obstacles]
+        edibles = [edi.get_pos() for edi in self.game.edibles]
+        objs_pos = obstacles + edibles
+
+        return {
+            'player' : player_pos,
+            'objects' : objs_pos,
+            'done' : self.running,
+            'objective' : self.game.objective
+        }
+    
+    
+
+
+
 # Run the game
 if __name__ == "__main__":
-    game = Game()
-    game.run()
+    game_interface = GameInterface()
+    game_interface.start_game()
+    game_interface.step()
+    

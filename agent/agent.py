@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 
 import numpy as np
+from enum import Enum
+
 
 
 
@@ -16,6 +18,9 @@ class InstantPolicyAgent:
     def _eval(self):
         pass
 
+# Auxiliary functions/ classes 
+
+## Modules/Networks for agent
 # operates on local subgraphs G_l and propagates initial information about the point cloud observations to the gripper nodes
 class RhoNN(nn.Module):
 
@@ -47,3 +52,29 @@ class PsiNN(nn.Module):
         self.fc3 = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(0.2)
 
+## Graph classes to represent objects. Consist of all classes that makes up classes 
+
+
+
+
+
+
+
+
+
+# rethink how this is done 
+# class Subgraph:
+
+#     def __init__(self, tl, tr, br, bl, c):
+#         self.nodes = [Node(tl),Node(tr),Node(br),Node(bl),Node(c)]
+#         self.edges = self._init_edges()
+
+#     # since we will be building the edge_matrix from the edges, we need to store create edge object with respective indexes
+#     def _init_edge(self):
+
+
+
+
+
+        
+        
