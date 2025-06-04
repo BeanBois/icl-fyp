@@ -91,6 +91,7 @@ class Player:
             'bot-right' : (self.x + self.size, self.y + self.size),
             'bot-left' : (self.x, self.y + self.size),
             'centre' : (self.x + self.size // 2, self.y + self.size // 2),
+            'orientation' : self.angle
         }
 
     def draw(self, screen):
@@ -348,10 +349,11 @@ class Game:
         return np.array(pixels)
 
 
+# make GameInteraface s.t an action can be done with Translation + Rotation matrix
 class GameInterface:
 
     def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10):
-        self.game = Game( num_edibles=num_edibles, num_obstacles=num_obstacles)
+        self.game = Game(num_edibles=num_edibles, num_obstacles=num_obstacles)
         self.running = True
         self.t = 0
         self.num_sampled_points = num_sampled_points
@@ -370,13 +372,16 @@ class GameInterface:
     # we do furthest point sampling algorithm to retrieve a cloud of point clouds
     # These sampled ppoint clouds is then used to create a graph representation 
     def get_obs(self):
-
+        agent_pos = self._get_agent_pos()
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
         raw_dense_point_clouds = self.game.get_screen_pixels()
         raw_coords = np.array([[(x,y) for y in range(SCREEN_HEIGHT) ]  for x in range(SCREEN_WIDTH)])
 
-        # To ensure that only objects point clouds are picked up, we remove all white pixels
-        mask = ~np.all(raw_dense_point_clouds == [255, 255, 255], axis=2)
+        # To ensure that only objects point clouds are picked up, we remove all white pixels and agent pixels
+        mask = ~np.all((raw_dense_point_clouds == [255, 255, 255]) | 
+                    (raw_dense_point_clouds == [128, 0, 128]) |
+                    (raw_dense_point_clouds == [0, 0, 255])
+                    , axis=2)
         valid_points = np.where(mask)
         dense_point_clouds = raw_dense_point_clouds[valid_points]
         coords = raw_coords[valid_points]
@@ -434,20 +439,17 @@ class GameInterface:
                 color_key = 'edible'
             elif color == RED:
                 color_key = 'obstacle'
-            elif color == BLUE or color == PURPLE:
-                color_key = 'agent'
             else:
                 color_key = 'unknown'
             color_segments[color_key].append({
                 'coord': coord,
                 'index': i,
                 'color': color
-            })
-        
+            })        
 
-        
         return {
             'point-clouds': dict(color_segments),
+            'agent-pos' : agent_pos,
             'agent-state' : agent_state,
             'done': self.running,
             'time' : self.t
@@ -490,8 +492,34 @@ class GameInterface:
             'objective' : self.game.objective
         }
     
-    
+    def _get_agent_pos(self):
+        player_pos = self.game.player.get_pos()
+        tl = np.array(player_pos['top-left'])
+        tr = np.array(player_pos['top-right'])
+        br = np.array(player_pos['bot-right'])
+        bl = np.array(player_pos['bot-left'])
+        center = np.array(player_pos['centre'])
+        ori = player_pos['orientation']
 
+        # player is a triangle so i want to capture the 3 edges of the triangle
+        # at player_ori == 0 degree, edges == (tl, bl, (tr+br)//2)
+        tri_points = np.array([tl, bl, (tr+br)//2])
+        R = self._rotation_matrix_2d(ori) 
+
+        # rotate around center
+        translated = tri_points - center
+        rotated = (R @ translated.T).T
+        final = rotated + center
+        player_pos = np.vstack([final,center])
+
+
+        return player_pos
+    
+    def _rotation_matrix_2d(self, theta):
+        theta = theta/180 * np.pi
+        c, s = np.cos(theta), np.sin(theta)
+        return np.array([[c, -s],
+                        [s,  c]])
 
 
 # Run the game
