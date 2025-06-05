@@ -3,6 +3,7 @@ import numpy as np
 from enum import Enum
 from typing import List
 import copy
+import math
 
 class AgentState(Enum):
     EATING = 0
@@ -349,7 +350,6 @@ class ContextGraph:
                     self.temporal_edges.append(Edge(source = demo_node, dest = curr_node, edge_type=EdgeType.AGENT_COND_AGENT))
 
 
-class Col
 
 # 
 class ActionGraph:
@@ -360,26 +360,28 @@ class ActionGraph:
         self.moving_action = action['movements']
         self.change_state_action = action['state-change']
 
-        self.action_edges = None 
+        self.action_edges = [] 
         self.predicted_graph = None
         self._apply_action_to_curr_graph()
         self._connect_curr_graph_to_predicted_graph()
-        self._connect_demo_to_predicted_graph()
+        # self._connect_demo_to_predicted_graph() i dont think we connect demo node to future predicted action
         pass
 
     def get_edges(self):
+        # if length of predicion is T, num agent node is N, 
+        # matrix should be T X N X N
         pass
 
-    def _connect_demo_to_predicted_graph(self):
-        for demo in self.context_graph.demo_graphs:
-            for demo_graph in demo:
-                predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
-                demo_graph_agent_nodes = demo_graph.agent_nodes
+    # def _connect_demo_to_predicted_graph(self):
+    #     for demo in self.context_graph.demo_graphs:
+    #         for demo_graph in demo:
+    #             predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
+    #             demo_graph_agent_nodes = demo_graph.agent_nodes
 
-                for demo_node in demo_graph_agent_nodes:
-                    for pred_node in predicted_graph_agent_nodes:
-                        if pred_node.tag == demo_node.tag:
-                            self.temporal_edges.append(Edge(source = demo_node, dest = pred_node, edge_type=EdgeType.AGENT_DEMOACTION_AGENT))
+    #             for demo_node in demo_graph_agent_nodes:
+    #                 for pred_node in predicted_graph_agent_nodes:
+    #                     if pred_node.tag == demo_node.tag:
+    #                         self.action_edges.append(Edge(source = demo_node, dest = pred_node, edge_type=EdgeType.AGENT_DEMOACTION_AGENT))
 
 
     def _connect_curr_graph_to_predicted_graph(self):
@@ -389,7 +391,7 @@ class ActionGraph:
         for curr_node in curr_graph_agent_nodes:
             for pred_node in predicted_graph_agent_nodes:
                 if pred_node.tag == curr_node.tag:
-                    self.temporal_edges.append(Edge(source = curr_node, dest = pred_node, edge_type=EdgeType.AGENT_TIME_ACTION_AGENT))
+                    self.action_edges.append(Edge(source = curr_node, dest = pred_node, edge_type=EdgeType.AGENT_TIME_ACTION_AGENT))
 
     def _apply_action_to_curr_graph(self):
 
@@ -405,8 +407,19 @@ class ActionGraph:
         predicted_agent_nodes = []
         for agent_node in predicted_graph.agent_nodes:
             # apply transformations and rotations
-            predicted_agent_node = self._apply_action_to_agent_node(agent_node,self.moving_action)
+            predicted_agent_node = self._apply_action_to_agent_node(agent_node)
             predicted_agent_nodes.append(predicted_agent_node)
+
+        # then depending on the state of the agent, we update the state of edible node with set_eaten()
+        # this too is a collision check
+        # check only done if agent is in eating state
+        if predicted_graph.agent_state == AgentState.EATING:
+            for predicted_agent_node in predicted_agent_nodes:
+                for obj_node, i in enumerate(predicted_graph.object_nodes):
+                    if type(obj_node) == EdibleNode:
+                        collided, collision_angle = self._check_collision(predicted_agent_nodes, obj_node)
+                        if collided:
+                            predicted_graph.object_nodes[i].set_eaten()
 
         # with updated agent_nodes, we need to see if the updated nodes collides with any obstacles. 
         # if such is the case, we need to update all the predicted nodes s.t its 'shape' does not change
@@ -416,40 +429,43 @@ class ActionGraph:
                 if type(obj_node) == ObstacleNode:
                     collided, collision_angle = self._check_collision(predicted_agent_nodes, obj_node)
                     if collided:
-                        collisions.append((predicted_agent_node, obj_node,collision_angle))
+                        collisions.append((collision_angle))
             
         if len(collisions) > 0:
-            predicted_agent_node = self._update_node_pos_based_on_collisions(predicted_agent_node, collisions) # this fucntion is hard to implement bffr
+            predicted_agent_nodes = self._update_node_pos_based_on_collisions(predicted_agent_nodes,collisions) # this fucntion is hard to implement bffr
+        
+        predicted_graph.agent_nodes = np.array(predicted_agent_nodes)
+        self.predicted_graph = predicted_graph
 
+    def _apply_action_to_agent_node(self, agent_node):
+        # complete this funciton 
+        # action consist of a rotation and translation
+        # we assume self.moving_action to be A = R @ T 
+        agent_node.pos = agent_node.pos @ self.moving_action
+        return agent_node
 
-
-
-
-        # finally depending on the state of the agent, we update the state of edible node with set_eaten()
-        # this too is a collision check
-        # check only done if agent is in eating state
-        if predicted_graph.agent_state == AgentState.EATING:
-            for predicted_agent_node in predicted_agent_nodes:
-                for obj_node in predicted_graph.object_nodes:
-                    if type(obj_node) == EdibleNode:
-                        collided, collision_angle = self._check_collision(predicted_agent_nodes, obj_node)
-                        if collided:
-                            collisions.append((predicted_agent_node, obj_node,collision_angle))
-
-        pass
-
-    def _apply_action_to_agent_node(self, agent_node, action):
-        return
-
-    def _check_collision(self, moving_node, static_node):
+    def _check_collision(self, moving_node, static_node, collision_delta = 5):
         # moving node is the one to be update
+        # collision delta gives us a radius that allows of uncertainty in node position wrt to object position
         collided = False 
         collision_angle = None 
-
-        return 
+        dxdy = static_node.pos - moving_node.pos 
+        distance = np.linalg.norm(dxdy)
+        if distance <= collision_delta:
+            collided = True
+            collision_angle = np.arctan2(dxdy[1], dxdy[0])
+        return collided, collision_angle
     
-    def _update_node_pos_based_on_collisions(self, moving_node, collisions):
-        return 
+    # this is a naive implementation, we just raw update each collision individually s.t we assume updates dont cause further collision
+    # even if it does, it just an approximate solution and the probability of it happening is quite low
+    # our assumption is that collision should be usually 1, rarely 2 
+    def _update_node_pos_based_on_collisions(self, predicted_agent_nodes, collisions, collision_update = 1):
+        for collision_angle in collisions:
+            for agent_node, i in enumerate(predicted_agent_nodes):
+                dxdy = collision_update * np.array([np.cos(collision_angle), np.sin(collision_angle)])
+                predicted_agent_nodes[i].pos = agent_node.pos - dxdy 
+
+        return predicted_agent_nodes
 
 if __name__ == "__main__":
     # run python -m utils.graph
