@@ -16,8 +16,8 @@ import pdb
 pygame.init()
 
 # Constants
-SCREEN_WIDTH = 400
-SCREEN_HEIGHT = 300
+SCREEN_WIDTH = 800
+SCREEN_HEIGHT = 600
 WHITE = (255, 255, 255) # WHITE SPACE
 BLACK = (0, 0, 0) # EDGE FOR GOAL
 RED = (255, 0, 0) # COLOR FOR OBSTACLES
@@ -120,17 +120,16 @@ class Player:
         if state_change_action is not None:
             if state_change_action != self.state: #here state change action will be represented by PlayerState
                 self.alternate_state()
-            
-        
-    
+             
     # TL, TR, BR, BL, Centre dictonary
     def get_pos(self):
+
         return {
-            'top-left': (self.x, self.y),
-            'top-right' : (self.x + self.size, self.y),
+            'top-left': (self.x - self.size, self.y - self.size),
+            'top-right' : (self.x + self.size, self.y - self.size),
             'bot-right' : (self.x + self.size, self.y + self.size),
-            'bot-left' : (self.x, self.y + self.size),
-            'centre' : (self.x + self.size // 2, self.y + self.size // 2),
+            'bot-left' : (self.x - self.size, self.y + self.size),
+            'centre' : (self.x, self.y),
             'orientation' : self.angle
         }
 
@@ -204,6 +203,33 @@ class Obstacle:
             'bot-left': (self.x - self.width//2, self.y + self.height//2),
             'centre': (self.x, self.y),
         }
+    
+class Goal:
+    def __init__(self, x, y, width=50, height=50):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    
+    def get_rect(self):
+        return pygame.Rect(self.x - self.width//2, self.y - self.height//2, 
+                          self.width, self.height)
+    
+    def draw(self, screen):
+        pygame.draw.rect(self.screen, YELLOW, 
+                        (self.x - 25, self.y - 25, 50, 50))
+        pygame.draw.rect(self.screen, BLACK, 
+                        (self.x - 25, self.y - 25, 50, 50), 3)
+    
+    # TL, TR, BR, BL, CENTROID dictonary
+    def get_pos(self):
+        return {
+            'top-left': (self.x - self.width//2, self.y - self.height//2),
+            'top-right': (self.x + self.width//2, self.y - self.height//2),
+            'bot-right': (self.x + self.width//2, self.y + self.height//2),
+            'bot-left': (self.x - self.width//2, self.y + self.height//2),
+            'centre': (self.x, self.y),
+        }
 
 class GameObjective(Enum):
     EAT_ALL = 1
@@ -226,7 +252,7 @@ class Game:
         self.player = Player(100, 100)
         self.edibles = []
         self.obstacles = []
-        self.goal_position = None
+        self.goal = None
         
         # Game state
         self.objective = objective  # "eat_all" or "reach_goal"
@@ -269,7 +295,8 @@ class Game:
                 height = random.randint(30, 50)
                 self.obstacles.append(Obstacle(x, y, width, height))
         
-            self.goal_position = (self.screen_width - 100, self.screen_height - 100)
+            goal_position = (self.screen_width - 100 + np.random.randint(-25,25), self.screen_height - 100 + np.random.randint(-25,25))
+            self.goal = Goal(goal_position[0], goal_position[1])
 
         # Command line print to inform player
         print("-" * 25)
@@ -315,7 +342,6 @@ class Game:
         self.player.move_with_action(action)
         return True
   
-
     def update(self):
         if self.game_over or self.game_won:
             return
@@ -337,8 +363,8 @@ class Game:
             if all(edible.eaten for edible in self.edibles):
                 self.game_won = True
         elif self.objective == GameObjective.REACH_GOAL:
-            if self.goal_position:
-                goal_rect = pygame.Rect(self.goal_position[0] - 25, self.goal_position[1] - 25, 50, 50)
+            if self.goal:
+                goal_rect = self.goal.get_rect()
                 if player_rect.colliderect(goal_rect):
                     self.game_won = True
     
@@ -355,11 +381,8 @@ class Game:
         self.player.draw(self.screen)
         
         # Draw goal if objective is "reach_goal"
-        if self.objective == GameObjective.REACH_GOAL and self.goal_position:
-            pygame.draw.rect(self.screen, YELLOW, 
-                           (self.goal_position[0] - 25, self.goal_position[1] - 25, 50, 50))
-            pygame.draw.rect(self.screen, BLACK, 
-                           (self.goal_position[0] - 25, self.goal_position[1] - 25, 50, 50), 3)
+        if self.objective == GameObjective.REACH_GOAL and self.goal:
+            self.goal.draw(self.screen)
         
 
         message = None 
@@ -378,7 +401,7 @@ class Game:
         self.player = Player(100, 100)
         self.edibles = []
         self.obstacles = []
-        self.goal_position = None
+        self.goal = None
         self.game_over = False
         self.game_won = False
         self.setup_game()
@@ -537,30 +560,6 @@ class GameInterface:
         else:
             pygame.quit()
             sys.exit()
-
-    # return dictionary of point clouds taken from screen
-    # for now we just return the corners and centroid of each object
-    # each point cloud encodes the position and colour of the particular pixel 
-    # belows will be implemented in another function by class Subgraph and Graph within the agent file 
-        # the collected point clouds are used to construct a sub-graph which represents the object geometry/shape 
-            # this edge type will be intra-object edge-type, and its feature also includes a distance based on euc-distance for now
-        # then to construct the local graph, corners of each object are fully connected to all other corners of other object, and centroid are connected to other centroids
-            # this edge type will be inter-object edge-type, and its feature also includes a distance based on euc-distance for now
-    def _get_game_obj_pos(self):
-        # first get player 
-        player_pos = self.game.player.get_pos()
-
-        # then get obstacles and object 
-        obstacles = [obj.get_pos() for obj in self.game.obstacles]
-        edibles = [edi.get_pos() for edi in self.game.edibles]
-        objs_pos = obstacles + edibles
-
-        return {
-            'player' : player_pos,
-            'objects' : objs_pos,
-            'done' : self.running,
-            'objective' : self.game.objective
-        }
     
     def _get_agent_pos(self):
         player_pos = self.game.player.get_pos()
@@ -591,6 +590,31 @@ class GameInterface:
         return np.array([[c, -s],
                         [s,  c]])
 
+"""
+    # return dictionary of point clouds taken from screen
+    # for now we just return the corners and centroid of each object
+    # each point cloud encodes the position and colour of the particular pixel 
+    # belows will be implemented in another function by class Subgraph and Graph within the agent file 
+        # the collected point clouds are used to construct a sub-graph which represents the object geometry/shape 
+            # this edge type will be intra-object edge-type, and its feature also includes a distance based on euc-distance for now
+        # then to construct the local graph, corners of each object are fully connected to all other corners of other object, and centroid are connected to other centroids
+            # this edge type will be inter-object edge-type, and its feature also includes a distance based on euc-distance for now
+    # def _get_game_obj_pos(self):
+    #     # first get player 
+    #     player_pos = self.game.player.get_pos()
+
+    #     # then get obstacles and object 
+    #     obstacles = [obj.get_pos() for obj in self.game.obstacles]
+    #     edibles = [edi.get_pos() for edi in self.game.edibles]
+    #     objs_pos = obstacles + edibles
+
+    #     return {
+    #         'player' : player_pos,
+    #         'objects' : objs_pos,
+    #         'done' : self.running,
+    #         'objective' : self.game.objective
+    #     }
+"""
 
 # this class is used to represent a pseudogame
 # It should play out by itself 
@@ -604,93 +628,417 @@ class PseudoGameMode:
 
 
 
+# pseudogame used to generate a pseudo demo
 class PseudoGame:
 
     def __init__(self, max_num_sampled_waypoints = 6, min_num_sampled_waypoints = 2, mode = PseudoGameMode.RANDOM, biased = False, 
-                 augmented = False, screen_width = 200, screen_height = 150):
+                 augmented = False, screen_width = 400, screen_height = 300, num_sampled_point_clouds = 20):
         
         # setup configs for pseudo game
         self.mode = mode 
-        self.num_edibles = 0
-        self.num_obtsacles = 0
-        self.num_goals = 0
-        self.game_obj = None
-        self._init_configs()
+        self.num_sampled_point_clouds = num_sampled_point_clouds
+        self._init_game_configs()
 
         # init game
-        self.game = None
-        self.running = None
-        self.t = None
-        self._setup_pseudo_game()
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+        self.clock = pygame.time.Clock()
+        self.player = Player(100, 100)
+        self.t = 0
+        self.object = None
 
+        # setup game by creating relevant object
+        self._setup_pseudo_game()
 
         self.num_waypoints_used = np.random.randint(min_num_sampled_waypoints, max_num_sampled_waypoints)
         self.game_obj = self.game.objective
         self.waypoints = None 
         self.biased = biased
         self.augmented = augmented
-
+        self.waypoints = []
+        self.observations = []
         self._sample_waypoints()
 
-    def _init_configs(self):
+
+    # this function does a run of the pseudogame and returns the observations in pointclouds 
+    # it will be a list of 'frames' at each timepoints
+    def run(self):
+        while self.num_waypoints_used > self.t:
+            self.go_to_next_waypoint()
+            obs = self.get_obs()
+            self.observations.append(obs)
+            self.update()
+            self.draw()
+            self.clock.tick(60)
+            self.t += 1
+        self._end_game()
+        pass
+
+    def get_obs(self):
+        agent_pos = self._get_agent_pos()
+        # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
+        raw_dense_point_clouds = self._get_screen_pixels()
+        raw_coords = np.array([[(x,y) for y in range(self.game.screen_height) ]  for x in range(self.game.screen_width)])
+
+        # To ensure that only objects point clouds are picked up, we remove all white pixels and agent pixels
+        mask = ~np.all((raw_dense_point_clouds == [255, 255, 255]) | 
+                    (raw_dense_point_clouds == [128, 0, 128]) |
+                    (raw_dense_point_clouds == [0, 0, 255])
+                    , axis=2)
+        valid_points = np.where(mask)
+        dense_point_clouds = raw_dense_point_clouds[valid_points]
+        coords = raw_coords[valid_points]
+
+        # To simulate FPSA, we randomly select an initial point from coords ranging from p in (SCREEN_WIDTH X SCREEN_HEIGHT)  
+        selected_indices = []
+        initial_coord = random.randint(0, len(coords) - 1)
+        selected_indices.append(initial_coord)
+
+        # then perform FPSA to collect M points
+        for _ in range(self.num_sampled_point_clouds-1):
+            if len(selected_indices) >= len(coords):
+                break
+
+            selected_coords = coords[selected_indices]
+        
+            # Calculate minimum distance from each unselected point to nearest selected point
+            max_min_distance = -1
+            best_idx = -1
+            
+            for i, coord in enumerate(coords):
+                if i in selected_indices:
+                    continue
+                    
+                # Calculate distances to all selected points
+                distances = np.linalg.norm(selected_coords - coord, axis=1)
+                min_distance = np.min(distances)
+                
+                # Keep track of point with maximum minimum distance
+                if min_distance > max_min_distance:
+                    max_min_distance = min_distance
+                    best_idx = i
+            
+            if best_idx != -1:
+                selected_indices.append(best_idx)
+
+        # Categorise/Segment M points according to colour (sidestepping geometric encoder)
+        selected_coords = coords[selected_indices]
+        selected_colors = dense_point_clouds[selected_indices]
+        color_segments = defaultdict(list)
+        agent_state = None
+        if BLUE in selected_colors:
+            agent_state = 'not-eating'
+        elif PURPLE in selected_colors:
+            agent_state = 'eating'
+        
+        for i, (coord, color) in enumerate(zip(selected_coords, selected_colors)):
+            # Convert RGB to a hashable tuple for grouping
+            # color_key = tuple(color.astype(int))
+            color_key = None
+            color = tuple(color)
+            if color == BLACK or color == YELLOW:
+                color_key = 'goal'
+            elif color == GREEN:
+                color_key = 'edible'
+            elif color == RED:
+                color_key = 'obstacle'
+            else:
+                color_key = 'unknown'
+            color_segments[color_key].append({
+                'coord': coord,
+                'index': i,
+                'color': color
+            })        
+
+        return {
+            'point-clouds': dict(color_segments),
+            'agent-pos' : agent_pos,
+            'agent-state' : agent_state,
+            'done': self.running,
+            'time' : self.t
+        }
+
+    def go_to_next_waypoint(self):
+        if len(self.waypoints) == 0:
+            return
+        next_waypoint = self.waypoints.pop(0)
+        movement = next_waypoint['movement']
+        state_change = next_waypoint['state-change']
+        player_pos = self.player.get_pos()['centre']
+
+        movement_action = None
+        state_change_action = None
+        # deal with movement first
+        if movement is not None:
+            dydx = next_waypoint - np.array(player_pos)
+            curr_player_angle = self.player.angle
+            angle_rad = np.arctan2(dydx[0], dydx[1])  # assuming [dy, dx]
+            # Convert to degrees
+            angle_deg = np.degrees(angle_rad)
+
+            # find nearest rotation
+            angle_diff = angle_deg - curr_player_angle
+            # Normalize to [-180, 180] range for shortest rotation
+            angle_diff = ((angle_diff + 180) % 360) - 180
+            # then find distance
+            distance = np.linalg.norm(dydx)
+
+            # then movement = rotation * distance
+            # Create rotation matrix for the angle difference
+            rotation_angle_rad = np.radians(angle_diff)
+            rotation_matrix = np.array([[np.cos(rotation_angle_rad), -np.sin(rotation_angle_rad)],
+                                    [np.sin(rotation_angle_rad),  np.cos(rotation_angle_rad)]])
+
+            # Or if you want the transformation matrix:
+            movement_action = distance * rotation_matrix
+
+        action = {
+            'movement' : movement_action,
+            'state-change' : state_change
+        }
+
+        self.player.move_with_action(action)
+
+    def update(self):
+        player_rect = self.player.get_rect()
+        object_rect = self.object.get_rect()
+        if player_rect.colliderect(object_rect) and type(self.object) == EdibleObject and self.player.state is PlayerState.EATING:
+            self.object.eaten = True 
+
+    def draw(self):
+        self.screen.fill(WHITE)
+        
+        self.player.draw(self.screen)
+        self.object.draw(self.screen)
+        
+        pygame.display.flip()
+
+    def _get_agent_pos(self):
+        player_pos = self.player.get_pos()
+        tl = np.array(player_pos['top-left'])
+        tr = np.array(player_pos['top-right'])
+        br = np.array(player_pos['bot-right'])
+        bl = np.array(player_pos['bot-left'])
+        center = np.array(player_pos['centre'])
+        ori = player_pos['orientation']
+
+        # player is a triangle so i want to capture the 3 edges of the triangle
+        # at player_ori == 0 degree, edges == (tl, bl, (tr+br)//2)
+        tri_points = np.array([tl, bl, (tr+br)//2])
+        R = self._rotation_matrix_2d(ori) 
+
+        # rotate around center
+        translated = tri_points - center
+        rotated = (R @ translated.T).T
+        final = rotated + center
+        player_pos = np.vstack([final,center])
+
+
+        return player_pos
+    
+    def _rotation_matrix_2d(self, theta):
+        theta = theta/180 * np.pi
+        c, s = np.cos(theta), np.sin(theta)
+        return np.array([[c, -s],
+                        [s,  c]])
+    
+    def _init_game_configs(self):
         if self.mode == PseudoGameMode.RANDOM:
             self.mode = random.choice([PseudoGameMode.EAT_EDIBLE, PseudoGameMode.AVOID_OBSTACLE, PseudoGameMode.REACH_GOAL])
         
-        if self.mode == PseudoGameMode.EAT_EDIBLE:
-            self.num_edibles = 1
-            self.game_obj = GameObjective.EAT_ALL
-        elif self.mode == PseudoGameMode.AVOID_OBSTACLE:
-            self.num_obtsacles = 1
-            self.game_obj = GameObjective.REACH_GOAL
-        else:
-            self.num_goals = 1
-            self.game_obj = GameObjective.REACH_GOAL
-            
 
-    
     def _setup_pseudo_game(self):
-        self.game = Game(num_edibles=self.num_edibles, num_obstacles=self.num_obtsacles, num_goals=self.num_goals)
-        self.running = True
-        self.t = 0
-        pass 
+        if self.mode == PseudoGameMode.EAT_EDIBLE:
+            x = random.randint(50, self.screen_width - 50)
+            y = random.randint(50, self.screen_height - 50)
+            # Make sure edibles don't spawn too close to player
+            while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 100:
+                x = random.randint(50, self.screen_width - 50)
+                y = random.randint(50, self.screen_height - 50)
+            
+            width = random.randint(15, 25)
+            height = random.randint(15, 25)
+            self.object = EdibleObject(x, y, width, height)
 
+        elif self.mode == PseudoGameMode.AVOID_OBSTACLE:
+            x = random.randint(50, self.screen_width - 50)
+            y = random.randint(50, self.screen_height - 50)
+            # Make sure obstacles don't spawn too close to player
+            while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 150:
+                x = random.randint(50,  self.screen_width - 50)
+                y = random.randint(50, self.screen_height - 50)
+            
+            width = random.randint(30, 50)
+            height = random.randint(30, 50)
+            self.object = Obstacle(x, y, width, height)
 
-
-    
+        else:
+            x = random.randint(50, self.screen_width - 50)
+            y = random.randint(50, self.screen_height - 50)
+            self.object = Goal(x,y)
+        
+    # complete this function
     def _sample_waypoints(self):
         game_obj_positions = self._get_game_obj_pos()
+        object_pos = game_obj_positions['object']  # tl, tr, br, bl, center
+        agent_pos = game_obj_positions['player']  # tl, tr, br, bl, center
 
-        
 
-        if self.game_obj == GameObjective.EAT_ALL:
-            #  we need to sample waypoints such that it passes through all edibles 
-            pass 
+        if type(self.object) is EdibleObject or type(self.object) is Goal:
+            # want to sample waypoints near object s.t it cross
+            # for random we sample random waypoints
+            # for biased, we sample waypoints along vector from center of player to center of goal
+            waypoints = []
+            if self.biased:
+
+                # Sample waypoints along the direct path to the goal
+                player_center = agent_pos['center']
+                object_center = object_pos['center']
+                direction_vector = np.array(object_center) - np.array(player_center)
+                for i in range(1, self.num_waypoints_used + 1):
+                    # Sample points along the line with some random offset
+                    t = i / (self.num_waypoints_used + 1)  # Parameter along the line
+                    base_point = np.array(player_center) + t * direction_vector
+                    
+                    # Add small random offset perpendicular to the direction
+                    perpendicular = np.array([-direction_vector[1], direction_vector[0]])
+                    perpendicular = perpendicular / np.linalg.norm(perpendicular) if np.linalg.norm(perpendicular) > 0 else np.array([0, 0])
+                    offset = np.random.uniform(-20, 20) * perpendicular
+                    
+                    waypoint = base_point + offset
+                    waypoints.append(waypoint)
+
+            else:
+
+                object_center = object_pos['center']
+                obj_width = self.object.width
+                obj_height = self.object.height
+                min_radius = min( obj_width, obj_height ) + self.player.size + 5
+
+                for _ in range(self.num_waypoints):
+                    # Sample random points in a circle around the object
+                    angle = np.random.uniform(0, 2 * np.pi)
+                    radius = np.random.uniform(min_radius, min_radius * 1.5)  # Adjust radius as needed
+                    offset = radius * np.array([np.cos(angle), np.sin(angle)])
+                    waypoint = np.array(object_center) + offset
+                    waypoints.append(waypoint)
+
         else:
-            # we need to sample waypoints such that it moves around obstacles and passes through goal
-            # for this we can first set up the 1st waypoint such that it 
+            # for random, sample waypoints away from object
+            # for biased, sample waypooints s.t it circumvents the obstacle
+            # this is done by sampling points around tl, tr, br, bl of the obstacle (if there is enough waypoints)
+            if self.biased:
+                # Sample waypoints around the corners to circumvent the obstacle
+                corners = [object_pos['tl'], object_pos['tr'], object_pos['br'], object_pos['bl']]
+                player_center = agent_pos['center']
+                object_center = object_pos['center']
+                
+                # Determine which side of the obstacle to go around
+                player_to_object = np.array(object_center) - np.array(player_center)
+                
+                waypoints_per_corner = max(1, self.num_waypoints_used // 4 + 1)
+                
+                for corner in corners:
+                    for i in range(waypoints_per_corner):
+                        # Sample points around each corner with some offset
+                        corner_array = np.array(corner)
+                        
+                        # Offset away from the obstacle center
+                        corner_to_center = corner_array - np.array(object_center)
+                        corner_to_center = corner_to_center / np.linalg.norm(corner_to_center) if np.linalg.norm(corner_to_center) > 0 else np.array([1, 0])
+                        
+                        # Add random offset in the direction away from obstacle
+                        offset_distance = np.random.uniform(20, 60)
+                        random_angle = np.random.uniform(-np.pi/4, np.pi/4)  # ±45 degrees
+                        
+                        rotation_matrix = np.array([[np.cos(random_angle), -np.sin(random_angle)],
+                                                [np.sin(random_angle), np.cos(random_angle)]])
+                        offset_direction = rotation_matrix @ corner_to_center
+                        
+                        waypoint = corner_array + offset_distance * offset_direction
+                        waypoints.append(waypoint)
+                        
+                        if len(waypoints) >= self.num_waypoints_used:
+                            break
+                    if len(waypoints) >= self.num_waypoints_used:
+                        break
+                        
+                # Trim to exact number needed
+                waypoints = waypoints[:self.num_waypoints_used]
+            else:
+                # Random waypoints away from the obstacle
+                object_center = object_pos['center']
+                player_center = agent_pos['center']
+                
+                for _ in range(self.num_waypoints):
+                    # Sample random points, but bias them away from the obstacle
+                    attempts = 0
+                    while attempts < 10:  # Limit attempts to avoid infinite loop
+                        # Generate random point
+                        angle = np.random.uniform(0, 2 * np.pi)
+                        radius = np.random.uniform(30, 100)  # Distance from player
+                        candidate = np.array(player_center) + radius * np.array([np.cos(angle), np.sin(angle)])
+                        
+                        # Check if point is reasonably far from obstacle
+                        distance_to_obstacle = np.linalg.norm(candidate - np.array(object_center))
+                        if distance_to_obstacle > 40:  # Minimum distance from obstacle
+                            waypoints.append(candidate)
+                            break
+                        attempts += 1
+                    
+                    # If we couldn't find a good point, just add a random one
+                    if attempts >= 10:
+                        angle = np.random.uniform(0, 2 * np.pi)
+                        radius = np.random.uniform(50, 120)
+                        waypoint = np.array(player_center) + radius * np.array([np.cos(angle), np.sin(angle)])
+                        waypoints.append(waypoint)
+
+        # now we got waypoints, we need to assign 1 or more waypoints that get chosen to alter state
+        processed_waypoints = [(waypoint, None) for waypoint in waypoints]
+        num_state_changing_waypoints = np.random.randint(1,self.num_waypoints_used)
+        chosen_index = np.random.choice(self.num_waypoints_used, replace = False, size = num_state_changing_waypoints)
+        state_change_to = PlayerState.EATING
+
+        # now choose 1 or more to alternate states
+        for index in chosen_index:
+            processed_waypoints[index][1] = state_change_to
+            if state_change_to is PlayerState.EATING:
+                state_change_to = PlayerState.NOT_EATING
+            else:
+                state_change_to = PlayerState.EATING
+
+
+        # for now we dont augment
+        if self.augmented:
+
+
+
             pass
-        pass 
+        pass
+        
 
     def _get_game_obj_pos(self):
         # first get player 
-        player_pos = self.game.player.get_pos()
-
-        # then get obstacles and object 
-        obstacles = [obj.get_pos() for obj in self.game.obstacles]
-        edibles = [edi.get_pos() for edi in self.game.edibles]
-        objs_pos = obstacles + edibles
+        player_pos = self.player.get_pos()
+        object_pos = self.object.get_pos()
 
         return {
             'player' : player_pos,
-            'objects' : objs_pos,
-            'done' : self.running,
-            'objective' : self.game.objective
+            'object' : object_pos
         }
 
+    def _get_screen_pixels(self):
+        pixels = [
+            [ np.array(self.screen.get_at((x,y))[:3]) for y in range(self.screen_height)] for x in range(self.screen_width)
+        ]
+
+        return np.array(pixels)
     
-
-
-
+    def _end_game(self):
+        pygame.quit()
+        sys.exit()
+    
 
 
 # Run the game

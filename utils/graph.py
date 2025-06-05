@@ -355,7 +355,7 @@ class ActionGraph:
     def __init__(self, context_graph, action):
         self.context_graph = context_graph
 
-        self.moving_action = action['movements']
+        self.moving_action = action['movement']
         self.change_state_action = action['state-change']
 
         self.action_edges = [] 
