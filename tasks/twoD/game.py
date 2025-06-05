@@ -95,7 +95,6 @@ class Player:
 
         if moving_action is not None:
 
-            current_pos = np.array([self.x, self.y])
             
             distance = moving_action['distance']
             angle = moving_action['angle']
@@ -111,7 +110,6 @@ class Player:
             rad = math.radians(self.angle)
             self.x += distance * math.cos(rad)
             self.y += distance * math.sin(rad)
-        
         if state_change_action is not None:
             if state_change_action != self.state: #here state change action will be represented by PlayerState
                 self.alternate_state()
@@ -216,7 +214,7 @@ class Goal:
         pygame.draw.rect(screen, BLACK, 
                         (self.x - 25, self.y - 25, 50, 50), 3)
     
-    # TL, TR, BR, BL, CENTROID dictonary
+    # TL, TR, BR, BL, Center dictonary
     def get_pos(self):
         return {
             'top-left': (self.x - self.width//2, self.y - self.height//2),
@@ -670,6 +668,9 @@ class PseudoGame:
             self.t += 1
             obs = self.get_obs()
             self.observations.append(obs)
+        self.update()
+        self.draw()
+        self.clock.tick(60)
         self._end_game()
         pass
 
@@ -758,6 +759,7 @@ class PseudoGame:
             # 'time' : self.t
         }
 
+    # function is kinda funny, it moves to the first waypoint correctly, but after that it diverges
     def go_to_next_waypoint(self):
         # uncomment back after debuggin
         # if len(self.waypoints) == 0:
@@ -802,7 +804,7 @@ class PseudoGame:
             },
             'state-change' : state_change
         }
-        breakpoint()
+
 
         self.player.move_with_action(action)
 
@@ -887,7 +889,9 @@ class PseudoGame:
             y = random.randint(50, self.screen_height - 50)
             self.object = Goal(x,y)
         
-    # complete this function
+    # this function is very bad
+    # for edibles and goal we need it to actually move towards it
+    # but not doing it
     def _sample_waypoints(self):
         game_obj_positions = self._get_game_obj_pos()
         object_pos = game_obj_positions['object']  # tl, tr, br, bl, center
@@ -939,7 +943,7 @@ class PseudoGame:
             # this is done by sampling points around tl, tr, br, bl of the obstacle (if there is enough waypoints)
             if self.biased:
                 # Sample waypoints around the corners to circumvent the obstacle
-                corners = [object_pos['tl'], object_pos['tr'], object_pos['br'], object_pos['bl']]
+                corners = [object_pos['top-left'], object_pos['top-right'], object_pos['bot-right'], object_pos['bot-left']]
                 player_center = agent_pos['center']
                 object_center = object_pos['center']
                 
