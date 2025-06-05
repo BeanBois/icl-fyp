@@ -28,6 +28,7 @@ YELLOW = (255, 255, 0) # COLOR FOR GOAL
 
 NUM_OF_EDIBLE_OBJECT = 1
 NUM_OF_OBSTACLES = 1
+NUM_OF_GOALS = 1
 
 class PlayerState(Enum):
     NOT_EATING = 1
@@ -35,7 +36,7 @@ class PlayerState(Enum):
 
 class Player:
     
-    def __init__(self, x, y, state : PlayerState = PlayerState.NOT_EATING):
+    def __init__(self, x, y, state : PlayerState = PlayerState.NOT_EATING, screen_width = SCREEN_WIDTH, screen_height = SCREEN_HEIGHT):
         self.x = x
         self.y = y
         self.angle = 0  # Facing direction in degrees
@@ -43,6 +44,8 @@ class Player:
         self.speed = 3
         self.rotation_speed = 5
         self.state = state
+        self.screen_width = screen_width
+        self.screen_height = screen_height
         
     def move_forward(self):
         # Convert angle to radians and move in facing direction
@@ -51,8 +54,8 @@ class Player:
         self.y += self.speed * math.sin(rad)
         
         # Keep player within screen bounds
-        self.x = max(self.size, min(SCREEN_WIDTH - self.size, self.x))
-        self.y = max(self.size, min(SCREEN_HEIGHT - self.size, self.y))
+        self.x = max(self.size, min(self.screen_width - self.size, self.x))
+        self.y = max(self.size, min(self.screen_height - self.size, self.y))
     
     def move_backward(self):
         rad = math.radians(self.angle)
@@ -60,8 +63,8 @@ class Player:
         self.y -= self.speed * math.sin(rad)
         
         # Keep player within screen bounds
-        self.x = max(self.size, min(SCREEN_WIDTH - self.size, self.x))
-        self.y = max(self.size, min(SCREEN_HEIGHT - self.size, self.y))
+        self.x = max(self.size, min(self.screen_width - self.size, self.x))
+        self.y = max(self.size, min(self.screen_height - self.size, self.y))
     
     def rotate_left(self):
         self.angle -= self.rotation_speed
@@ -82,6 +85,43 @@ class Player:
     def get_rect(self):
         return pygame.Rect(self.x - self.size, self.y - self.size, 
                           self.size * 2, self.size * 2)
+    
+    def move_with_action(self,action):
+        # action is ROTATION @ TRANSLATION, SO A 2X2 matrix 
+        # we need to update self.x, self.y and self.angle respectively
+
+        moving_action = action['movement']
+        state_change_action = action['state-change']
+
+        if moving_action is not None:
+
+            current_pos = np.array([self.x, self.y])
+            
+            # Apply the transformation
+            new_pos = moving_action @ current_pos
+            
+            # Update position
+            self.x = new_pos[0]
+            self.y = new_pos[1]
+            
+            # Extract rotation angle from the transformation matrix
+            # For a 2D rotation matrix [[cos(θ), -sin(θ)], [sin(θ), cos(θ)]]
+            rotation_angle_rad = np.arctan2(moving_action[1, 0], moving_action[0, 0])
+            
+            # Convert to degrees
+            rotation_angle_deg = np.degrees(rotation_angle_rad)
+            
+            # Update the object's angle (add the rotation to current angle)
+            self.angle += rotation_angle_deg
+            
+            # Optional: Keep angle in [0, 360) range
+            self.angle = self.angle % 360
+        
+        if state_change_action is not None:
+            if state_change_action != self.state: #here state change action will be represented by PlayerState
+                self.alternate_state()
+            
+        
     
     # TL, TR, BR, BL, Centre dictonary
     def get_pos(self):
@@ -172,10 +212,13 @@ class GameObjective(Enum):
     
 class Game:
     
-    def __init__(self, num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES):
+    def __init__(self, num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_goals = NUM_OF_GOALS, screen_width = SCREEN_WIDTH, screen_height = SCREEN_HEIGHT, objective = None):
         self.num_edibles = num_edibles
         self.num_obstacles = num_obstacles
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.num_goals = num_goals
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("2D Game - Eat or Avoid")
         self.clock = pygame.time.Clock()
         
@@ -186,7 +229,7 @@ class Game:
         self.goal_position = None
         
         # Game state
-        self.objective = None  # "eat_all" or "reach_goal"
+        self.objective = objective  # "eat_all" or "reach_goal"
         self.game_over = False
         self.game_won = False
         self.font = pygame.font.Font(None, 36)
@@ -195,17 +238,18 @@ class Game:
 
     def setup_game(self):
         # Randomly choose objective
-        self.objective = random.choice([GameObjective.EAT_ALL, GameObjective.REACH_GOAL])
+        if self.objective is None:
+            self.objective = random.choice([GameObjective.EAT_ALL, GameObjective.REACH_GOAL])
         
         # Create edible objects if objective is eat all edibles
         if self.objective is GameObjective.EAT_ALL:
             for _ in range(self.num_edibles):
-                x = random.randint(50, SCREEN_WIDTH - 50)
-                y = random.randint(50, SCREEN_HEIGHT - 50)
+                x = random.randint(50, self.screen_width - 50)
+                y = random.randint(50, self.screen_height - 50)
                 # Make sure edibles don't spawn too close to player
                 while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 100:
-                    x = random.randint(50, SCREEN_WIDTH - 50)
-                    y = random.randint(50, SCREEN_HEIGHT - 50)
+                    x = random.randint(50, self.screen_width - 50)
+                    y = random.randint(50, self.screen_height - 50)
                 
                 width = random.randint(15, 25)
                 height = random.randint(15, 25)
@@ -214,18 +258,18 @@ class Game:
         # Create obstacles and set goal position if objective is reach goal
         if self.objective is GameObjective.REACH_GOAL:
             for _ in range(self.num_obstacles):
-                x = random.randint(50, SCREEN_WIDTH - 50)
-                y = random.randint(50, SCREEN_HEIGHT - 50)
+                x = random.randint(50, self.screen_width - 50)
+                y = random.randint(50, self.screen_height - 50)
                 # Make sure obstacles don't spawn too close to player
                 while math.sqrt((x - self.player.x)**2 + (y - self.player.y)**2) < 150:
-                    x = random.randint(50, SCREEN_WIDTH - 50)
-                    y = random.randint(50, SCREEN_HEIGHT - 50)
+                    x = random.randint(50,  self.screen_width - 50)
+                    y = random.randint(50, self.screen_height - 50)
                 
                 width = random.randint(30, 50)
                 height = random.randint(30, 50)
                 self.obstacles.append(Obstacle(x, y, width, height))
         
-            self.goal_position = (SCREEN_WIDTH - 100, SCREEN_HEIGHT - 100)
+            self.goal_position = (self.screen_width - 100, self.screen_height - 100)
 
         # Command line print to inform player
         print("-" * 25)
@@ -261,7 +305,17 @@ class Game:
 
         
         return True
-    
+
+    def handle_action(self,action):
+  
+        if self.game_over or self.game_won:
+            self.restart_game()
+        
+        # Handle continuous key presses
+        self.player.move_with_action(action)
+        return True
+  
+
     def update(self):
         if self.game_over or self.game_won:
             return
@@ -329,6 +383,10 @@ class Game:
         self.game_won = False
         self.setup_game()
     
+    def end_game(self):
+        pygame.quit()
+        sys.exit()
+
     # RUNS THE WHOLE GAME 
     def run(self):
         running = True
@@ -343,20 +401,27 @@ class Game:
 
     def get_screen_pixels(self):
         pixels = [
-            [ np.array(self.screen.get_at((x,y))[:3]) for y in range(SCREEN_HEIGHT)] for x in range(SCREEN_WIDTH)
+            [ np.array(self.screen.get_at((x,y))[:3]) for y in range(self.screen_height)] for x in range(self.screen_width)
         ]
 
         return np.array(pixels)
 
 
+# NEED TO INCORPORATE GAMEINTERFACE SUCH THAT IT CAN TAKE IN DEMO AND AGENT MOVES 
+class GameMode(Enum):
+    DEMO_MODE = 1
+    AGENT_MODE = 2 
+
+
 # make GameInteraface s.t an action can be done with Translation + Rotation matrix
 class GameInterface:
 
-    def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10):
+    def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10, mode = GameMode.DEMO_MODE):
         self.game = Game(num_edibles=num_edibles, num_obstacles=num_obstacles)
         self.running = True
         self.t = 0
         self.num_sampled_points = num_sampled_points
+        self.mode = mode
 
     def start_game(self):
         self.game.draw()
@@ -375,7 +440,7 @@ class GameInterface:
         agent_pos = self._get_agent_pos()
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
         raw_dense_point_clouds = self.game.get_screen_pixels()
-        raw_coords = np.array([[(x,y) for y in range(SCREEN_HEIGHT) ]  for x in range(SCREEN_WIDTH)])
+        raw_coords = np.array([[(x,y) for y in range(self.game.screen_height) ]  for x in range(self.game.screen_width)])
 
         # To ensure that only objects point clouds are picked up, we remove all white pixels and agent pixels
         mask = ~np.all((raw_dense_point_clouds == [255, 255, 255]) | 
@@ -455,10 +520,15 @@ class GameInterface:
             'time' : self.t
         }
 
-    def step(self):
+    def step(self,action = None):
         if self.running:
             self.t += 1
-            self.running = self.game.handle_events()
+            if self.mode == GameMode.AGENT_MODE:
+                self.running = self.game.handle_events()
+            else:
+                assert action is not None
+                self.running = self.game.handle_action(action) 
+                
             self.game.update()
             self.game.draw()
             self.game.clock.tick(60)
@@ -520,6 +590,107 @@ class GameInterface:
         c, s = np.cos(theta), np.sin(theta)
         return np.array([[c, -s],
                         [s,  c]])
+
+
+# this class is used to represent a pseudogame
+# It should play out by itself 
+# for pseudo demonstrations we will only concern ourselves with 1 object 
+
+class PseudoGameMode:
+    EAT_EDIBLE = 1
+    AVOID_OBSTACLE = 2
+    REACH_GOAL = 3
+    RANDOM = 4 
+
+
+
+class PseudoGame:
+
+    def __init__(self, max_num_sampled_waypoints = 6, min_num_sampled_waypoints = 2, mode = PseudoGameMode.RANDOM, biased = False, 
+                 augmented = False, screen_width = 200, screen_height = 150):
+        
+        # setup configs for pseudo game
+        self.mode = mode 
+        self.num_edibles = 0
+        self.num_obtsacles = 0
+        self.num_goals = 0
+        self.game_obj = None
+        self._init_configs()
+
+        # init game
+        self.game = None
+        self.running = None
+        self.t = None
+        self._setup_pseudo_game()
+
+
+        self.num_waypoints_used = np.random.randint(min_num_sampled_waypoints, max_num_sampled_waypoints)
+        self.game_obj = self.game.objective
+        self.waypoints = None 
+        self.biased = biased
+        self.augmented = augmented
+
+        self._sample_waypoints()
+
+    def _init_configs(self):
+        if self.mode == PseudoGameMode.RANDOM:
+            self.mode = random.choice([PseudoGameMode.EAT_EDIBLE, PseudoGameMode.AVOID_OBSTACLE, PseudoGameMode.REACH_GOAL])
+        
+        if self.mode == PseudoGameMode.EAT_EDIBLE:
+            self.num_edibles = 1
+            self.game_obj = GameObjective.EAT_ALL
+        elif self.mode == PseudoGameMode.AVOID_OBSTACLE:
+            self.num_obtsacles = 1
+            self.game_obj = GameObjective.REACH_GOAL
+        else:
+            self.num_goals = 1
+            self.game_obj = GameObjective.REACH_GOAL
+            
+
+    
+    def _setup_pseudo_game(self):
+        self.game = Game(num_edibles=self.num_edibles, num_obstacles=self.num_obtsacles, num_goals=self.num_goals)
+        self.running = True
+        self.t = 0
+        pass 
+
+
+
+    
+    def _sample_waypoints(self):
+        game_obj_positions = self._get_game_obj_pos()
+
+        
+
+        if self.game_obj == GameObjective.EAT_ALL:
+            #  we need to sample waypoints such that it passes through all edibles 
+            pass 
+        else:
+            # we need to sample waypoints such that it moves around obstacles and passes through goal
+            # for this we can first set up the 1st waypoint such that it 
+            pass
+        pass 
+
+    def _get_game_obj_pos(self):
+        # first get player 
+        player_pos = self.game.player.get_pos()
+
+        # then get obstacles and object 
+        obstacles = [obj.get_pos() for obj in self.game.obstacles]
+        edibles = [edi.get_pos() for edi in self.game.edibles]
+        objs_pos = obstacles + edibles
+
+        return {
+            'player' : player_pos,
+            'objects' : objs_pos,
+            'done' : self.running,
+            'objective' : self.game.objective
+        }
+
+    
+
+
+
 
 
 # Run the game

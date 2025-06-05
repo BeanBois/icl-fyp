@@ -330,7 +330,7 @@ class ContextGraph:
         self._connect_demo_graphs_to_curr_graph()
 
     # this should return a N x N x L x DEMO_SIZE matrix
-    def get_edges(self):
+    def get_demo_edges(self):
         pass
 
     def _connect_demo_graphs_to_curr_graph(self):
@@ -349,8 +349,6 @@ class ContextGraph:
                 if curr_node.tag == demo_node.tag:
                     self.temporal_edges.append(Edge(source = demo_node, dest = curr_node, edge_type=EdgeType.AGENT_COND_AGENT))
 
-
-
 # 
 class ActionGraph:
 
@@ -367,7 +365,7 @@ class ActionGraph:
         # self._connect_demo_to_predicted_graph() i dont think we connect demo node to future predicted action
         pass
 
-    def get_edges(self):
+    def get_action_edges(self):
         # if length of predicion is T, num agent node is N, 
         # matrix should be T X N X N
         pass
@@ -471,7 +469,7 @@ if __name__ == "__main__":
     # run python -m utils.graph
     from tasks.twoD.game import GameInterface
 
-    gi = GameInterface(num_sampled_points=10)
+    gi = GameInterface(num_sampled_points=10, num_edibles=2, num_obstacles=2)
     obs = gi.start_game()
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']
