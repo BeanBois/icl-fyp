@@ -97,31 +97,26 @@ class Player:
 
             current_pos = np.array([self.x, self.y])
             
+            distance = moving_action['distance']
+            angle = moving_action['angle']
             # Apply the transformation
-            new_pos = moving_action @ current_pos
-            
-            # Update position
-            self.x = new_pos[0]
-            self.y = new_pos[1]
-            
-            # Extract rotation angle from the transformation matrix
-            # For a 2D rotation matrix [[cos(θ), -sin(θ)], [sin(θ), cos(θ)]]
-            rotation_angle_rad = np.arctan2(moving_action[1, 0], moving_action[0, 0])
-            
-            # Convert to degrees
-            rotation_angle_deg = np.degrees(rotation_angle_rad)
             
             # Update the object's angle (add the rotation to current angle)
-            self.angle += rotation_angle_deg
+            self.angle += angle
             
             # Optional: Keep angle in [0, 360) range
             self.angle = self.angle % 360
+
+            # Update position
+            rad = math.radians(self.angle)
+            self.x += distance * math.cos(rad)
+            self.y += distance * math.sin(rad)
         
         if state_change_action is not None:
             if state_change_action != self.state: #here state change action will be represented by PlayerState
                 self.alternate_state()
              
-    # TL, TR, BR, BL, Centre dictonary
+    # TL, TR, BR, BL, center dictonary
     def get_pos(self):
 
         return {
@@ -129,7 +124,7 @@ class Player:
             'top-right' : (self.x + self.size, self.y - self.size),
             'bot-right' : (self.x + self.size, self.y + self.size),
             'bot-left' : (self.x - self.size, self.y + self.size),
-            'centre' : (self.x, self.y),
+            'center' : (self.x, self.y),
             'orientation' : self.angle
         }
 
@@ -177,7 +172,7 @@ class EdibleObject:
             'top-right': (self.x + self.width//2, self.y - self.height//2),
             'bot-right': (self.x + self.width//2, self.y + self.height//2),
             'bot-left': (self.x - self.width//2, self.y + self.height//2),
-            'centre': (self.x, self.y),
+            'center': (self.x, self.y),
         }
 
 class Obstacle:
@@ -201,7 +196,7 @@ class Obstacle:
             'top-right': (self.x + self.width//2, self.y - self.height//2),
             'bot-right': (self.x + self.width//2, self.y + self.height//2),
             'bot-left': (self.x - self.width//2, self.y + self.height//2),
-            'centre': (self.x, self.y),
+            'center': (self.x, self.y),
         }
     
 class Goal:
@@ -216,9 +211,9 @@ class Goal:
                           self.width, self.height)
     
     def draw(self, screen):
-        pygame.draw.rect(self.screen, YELLOW, 
+        pygame.draw.rect(screen, YELLOW, 
                         (self.x - 25, self.y - 25, 50, 50))
-        pygame.draw.rect(self.screen, BLACK, 
+        pygame.draw.rect(screen, BLACK, 
                         (self.x - 25, self.y - 25, 50, 50), 3)
     
     # TL, TR, BR, BL, CENTROID dictonary
@@ -228,7 +223,7 @@ class Goal:
             'top-right': (self.x + self.width//2, self.y - self.height//2),
             'bot-right': (self.x + self.width//2, self.y + self.height//2),
             'bot-left': (self.x - self.width//2, self.y + self.height//2),
-            'centre': (self.x, self.y),
+            'center': (self.x, self.y),
         }
 
 class GameObjective(Enum):
@@ -546,7 +541,7 @@ class GameInterface:
     def step(self,action = None):
         if self.running:
             self.t += 1
-            if self.mode == GameMode.AGENT_MODE:
+            if self.mode == GameMode.DEMO_MODE:
                 self.running = self.game.handle_events()
             else:
                 assert action is not None
@@ -567,7 +562,7 @@ class GameInterface:
         tr = np.array(player_pos['top-right'])
         br = np.array(player_pos['bot-right'])
         bl = np.array(player_pos['bot-left'])
-        center = np.array(player_pos['centre'])
+        center = np.array(player_pos['center'])
         ori = player_pos['orientation']
 
         # player is a triangle so i want to capture the 3 edges of the triangle
@@ -646,13 +641,13 @@ class PseudoGame:
         self.clock = pygame.time.Clock()
         self.player = Player(100, 100)
         self.t = 0
+        self.temp = 0 # remove this when useless
         self.object = None
 
         # setup game by creating relevant object
         self._setup_pseudo_game()
 
         self.num_waypoints_used = np.random.randint(min_num_sampled_waypoints, max_num_sampled_waypoints)
-        self.game_obj = self.game.objective
         self.waypoints = None 
         self.biased = biased
         self.augmented = augmented
@@ -664,14 +659,17 @@ class PseudoGame:
     # this function does a run of the pseudogame and returns the observations in pointclouds 
     # it will be a list of 'frames' at each timepoints
     def run(self):
+        self.draw()
+        obs = self.get_obs()
+        self.observations.append(obs)
         while self.num_waypoints_used > self.t:
             self.go_to_next_waypoint()
-            obs = self.get_obs()
-            self.observations.append(obs)
             self.update()
             self.draw()
             self.clock.tick(60)
             self.t += 1
+            obs = self.get_obs()
+            self.observations.append(obs)
         self._end_game()
         pass
 
@@ -679,12 +677,13 @@ class PseudoGame:
         agent_pos = self._get_agent_pos()
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
         raw_dense_point_clouds = self._get_screen_pixels()
-        raw_coords = np.array([[(x,y) for y in range(self.game.screen_height) ]  for x in range(self.game.screen_width)])
+        raw_coords = np.array([[(x,y) for y in range(self.screen_height) ]  for x in range(self.screen_width)])
 
         # To ensure that only objects point clouds are picked up, we remove all white pixels and agent pixels
         mask = ~np.all((raw_dense_point_clouds == [255, 255, 255]) | 
                     (raw_dense_point_clouds == [128, 0, 128]) |
-                    (raw_dense_point_clouds == [0, 0, 255])
+                    (raw_dense_point_clouds == [0, 0, 255]) |
+                    (raw_dense_point_clouds == [125, 125, 125]) 
                     , axis=2)
         valid_points = np.where(mask)
         dense_point_clouds = raw_dense_point_clouds[valid_points]
@@ -755,23 +754,34 @@ class PseudoGame:
             'point-clouds': dict(color_segments),
             'agent-pos' : agent_pos,
             'agent-state' : agent_state,
-            'done': self.running,
-            'time' : self.t
+            # 'done': self.running,
+            # 'time' : self.t
         }
 
     def go_to_next_waypoint(self):
-        if len(self.waypoints) == 0:
+        # uncomment back after debuggin
+        # if len(self.waypoints) == 0:
+        #     return
+        # next_waypoint = self.waypoints.pop(0)
+        # #####################################
+
+        # for debugging comment back after done
+        if self.temp == self.num_waypoints_used:
             return
-        next_waypoint = self.waypoints.pop(0)
+        next_waypoint = self.waypoints[self.temp]
+        self.temp +=1
+        # #####################################
+
         movement = next_waypoint['movement']
         state_change = next_waypoint['state-change']
-        player_pos = self.player.get_pos()['centre']
+        player_pos = self.player.get_pos()['center']
 
         movement_action = None
         state_change_action = None
         # deal with movement first
+        # we default movement to be a tuple of (distance, angle)
         if movement is not None:
-            dydx = next_waypoint - np.array(player_pos)
+            dydx = movement - np.array(player_pos)
             curr_player_angle = self.player.angle
             angle_rad = np.arctan2(dydx[0], dydx[1])  # assuming [dy, dx]
             # Convert to degrees
@@ -784,19 +794,15 @@ class PseudoGame:
             # then find distance
             distance = np.linalg.norm(dydx)
 
-            # then movement = rotation * distance
-            # Create rotation matrix for the angle difference
-            rotation_angle_rad = np.radians(angle_diff)
-            rotation_matrix = np.array([[np.cos(rotation_angle_rad), -np.sin(rotation_angle_rad)],
-                                    [np.sin(rotation_angle_rad),  np.cos(rotation_angle_rad)]])
-
-            # Or if you want the transformation matrix:
-            movement_action = distance * rotation_matrix
 
         action = {
-            'movement' : movement_action,
+            'movement' : {
+                'distance' : distance,
+                'angle' : angle_diff
+            },
             'state-change' : state_change
         }
+        breakpoint()
 
         self.player.move_with_action(action)
 
@@ -811,7 +817,10 @@ class PseudoGame:
         
         self.player.draw(self.screen)
         self.object.draw(self.screen)
-        
+        for waypoint in self.waypoints:
+            center = waypoint['movement']
+            center = (center[1], center[0])
+            pygame.draw.circle(self.screen, (125, 125, 125), center, 5)
         pygame.display.flip()
 
     def _get_agent_pos(self):
@@ -820,7 +829,7 @@ class PseudoGame:
         tr = np.array(player_pos['top-right'])
         br = np.array(player_pos['bot-right'])
         bl = np.array(player_pos['bot-left'])
-        center = np.array(player_pos['centre'])
+        center = np.array(player_pos['center'])
         ori = player_pos['orientation']
 
         # player is a triangle so i want to capture the 3 edges of the triangle
@@ -883,13 +892,13 @@ class PseudoGame:
         game_obj_positions = self._get_game_obj_pos()
         object_pos = game_obj_positions['object']  # tl, tr, br, bl, center
         agent_pos = game_obj_positions['player']  # tl, tr, br, bl, center
+        waypoints = []
 
 
         if type(self.object) is EdibleObject or type(self.object) is Goal:
             # want to sample waypoints near object s.t it cross
             # for random we sample random waypoints
             # for biased, we sample waypoints along vector from center of player to center of goal
-            waypoints = []
             if self.biased:
 
                 # Sample waypoints along the direct path to the goal
@@ -916,7 +925,7 @@ class PseudoGame:
                 obj_height = self.object.height
                 min_radius = min( obj_width, obj_height ) + self.player.size + 5
 
-                for _ in range(self.num_waypoints):
+                for _ in range(self.num_waypoints_used):
                     # Sample random points in a circle around the object
                     angle = np.random.uniform(0, 2 * np.pi)
                     radius = np.random.uniform(min_radius, min_radius * 1.5)  # Adjust radius as needed
@@ -971,7 +980,7 @@ class PseudoGame:
                 object_center = object_pos['center']
                 player_center = agent_pos['center']
                 
-                for _ in range(self.num_waypoints):
+                for _ in range(self.num_waypoints_used):
                     # Sample random points, but bias them away from the obstacle
                     attempts = 0
                     while attempts < 10:  # Limit attempts to avoid infinite loop
@@ -995,14 +1004,16 @@ class PseudoGame:
                         waypoints.append(waypoint)
 
         # now we got waypoints, we need to assign 1 or more waypoints that get chosen to alter state
-        processed_waypoints = [(waypoint, None) for waypoint in waypoints]
+        processed_waypoints = [{'movement' : waypoint, 
+                                'state-change' : None} 
+                                for waypoint in waypoints]
         num_state_changing_waypoints = np.random.randint(1,self.num_waypoints_used)
         chosen_index = np.random.choice(self.num_waypoints_used, replace = False, size = num_state_changing_waypoints)
         state_change_to = PlayerState.EATING
 
         # now choose 1 or more to alternate states
         for index in chosen_index:
-            processed_waypoints[index][1] = state_change_to
+            processed_waypoints[index]['state-change'] = state_change_to
             if state_change_to is PlayerState.EATING:
                 state_change_to = PlayerState.NOT_EATING
             else:
@@ -1016,6 +1027,7 @@ class PseudoGame:
 
             pass
         pass
+        self.waypoints = processed_waypoints
         
 
     def _get_game_obj_pos(self):
@@ -1043,7 +1055,11 @@ class PseudoGame:
 
 # Run the game
 if __name__ == "__main__":
-    game_interface = GameInterface()
-    game_interface.start_game()
-    game_interface.step()
+    # game_interface = GameInterface()
+    # game_interface.start_game()
+    # game_interface.step()
     
+    pseudogame = PseudoGame(biased=True)
+    pseudogame.run()
+    print('hi')
+    print(pseudogame.observations)
