@@ -110,6 +110,10 @@ class Player:
             rad = math.radians(self.angle)
             self.x += distance * math.cos(rad)
             self.y += distance * math.sin(rad)
+            # self.x += distance * math.sin(rad)
+            # self.y += distance * math.cos(rad)
+
+            
         if state_change_action is not None:
             if state_change_action != self.state: #here state change action will be represented by PlayerState
                 self.alternate_state()
@@ -760,12 +764,14 @@ class PseudoGame:
         }
 
     # function is kinda funny, it moves to the first waypoint correctly, but after that it diverges
+    # needs to change too since we are switching x and y
     def go_to_next_waypoint(self):
         # uncomment back after debuggin
         # if len(self.waypoints) == 0:
         #     return
         # next_waypoint = self.waypoints.pop(0)
         # #####################################
+
 
         # for debugging comment back after done
         if self.temp == self.num_waypoints_used:
@@ -774,7 +780,7 @@ class PseudoGame:
         self.temp +=1
         # #####################################
 
-        movement = next_waypoint['movement']
+        next_point = next_waypoint['movement']
         state_change = next_waypoint['state-change']
         player_pos = self.player.get_pos()['center']
 
@@ -782,10 +788,13 @@ class PseudoGame:
         state_change_action = None
         # deal with movement first
         # we default movement to be a tuple of (distance, angle)
-        if movement is not None:
-            dydx = movement - np.array(player_pos)
+
+        if next_point is not None:
+            dydx =  next_point - np.array(player_pos)
             curr_player_angle = self.player.angle
-            angle_rad = np.arctan2(dydx[0], dydx[1])  # assuming [dy, dx]
+            # angle_rad = np.arctan2(dydx[0], dydx[1])  # assuming [dy, dx]
+            angle_rad = np.arctan2(dydx[1], dydx[0])  # assuming [dy, dx]
+
             # Convert to degrees
             angle_deg = np.degrees(angle_rad)
 
@@ -805,7 +814,7 @@ class PseudoGame:
             'state-change' : state_change
         }
 
-
+        
         self.player.move_with_action(action)
 
     def update(self):
@@ -821,7 +830,7 @@ class PseudoGame:
         self.object.draw(self.screen)
         for waypoint in self.waypoints:
             center = waypoint['movement']
-            center = (center[1], center[0])
+            # center = (center[1], center[0])
             pygame.draw.circle(self.screen, (125, 125, 125), center, 5)
         pygame.display.flip()
 
@@ -1064,6 +1073,18 @@ if __name__ == "__main__":
     # game_interface.step()
     
     pseudogame = PseudoGame(biased=True)
+    # sample points
+    # pseudogame.waypoints = [{'movement' : np.array([150,150]), 
+    #                             'state-change' : None} ,
+    #                             {'movement' :  np.array([250,200]), 
+    #                             'state-change' : None} ,
+    #                             {'movement' :  np.array([200,250]), 
+    #                             'state-change' : None} ,
+    #                             {'movement' :  np.array([325,300]), 
+    #                             'state-change' : None} ,
+    #                             {'movement' :  np.array([300,350]), 
+    #                             'state-change' : None} ]
+    # pseudogame.num_waypoints_used = 5
     pseudogame.run()
     print('hi')
     print(pseudogame.observations)

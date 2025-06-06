@@ -141,6 +141,7 @@ class LocalGraph:
         self._init_edges()
     
     # need to convert edge objects to matrix s.t it can be used in transformers
+    # this should be a N x N matrix, where N is the number of nodes
     def get_edges(self):
         return self.edges
 
@@ -352,7 +353,7 @@ class ContextGraph:
 # 
 class ActionGraph:
 
-    def __init__(self, context_graph, action):
+    def __init__(self, context_graph : ContextGraph, action):
         self.context_graph = context_graph
 
         self.moving_action = action['movement']
@@ -435,6 +436,8 @@ class ActionGraph:
         predicted_graph.agent_nodes = np.array(predicted_agent_nodes)
         self.predicted_graph = predicted_graph
 
+    # this function is most definitely wrong HAHAHAHA
+    # fix this
     def _apply_action_to_agent_node(self, agent_node):
         # complete this funciton 
         # action consist of a rotation and translation
