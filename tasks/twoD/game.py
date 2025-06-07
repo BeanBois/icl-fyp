@@ -1068,11 +1068,18 @@ class PseudoGame:
 
 # Run the game
 if __name__ == "__main__":
+
+    # Code to try Game
+    game = Game()
+    game.run()
+
+    # Code to try Game Interface for agent
     # game_interface = GameInterface()
     # game_interface.start_game()
     # game_interface.step()
     
-    pseudogame = PseudoGame(biased=True)
+    # Code to try PseudoGame
+    # pseudogame = PseudoGame(biased=True)
     # sample points
     # pseudogame.waypoints = [{'movement' : np.array([150,150]), 
     #                             'state-change' : None} ,
@@ -1085,6 +1092,6 @@ if __name__ == "__main__":
     #                             {'movement' :  np.array([300,350]), 
     #                             'state-change' : None} ]
     # pseudogame.num_waypoints_used = 5
-    pseudogame.run()
-    print('hi')
-    print(pseudogame.observations)
+    # pseudogame.run()
+    # print('hi')
+    # print(pseudogame.observations)

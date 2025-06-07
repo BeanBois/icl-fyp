@@ -155,6 +155,18 @@ class LocalGraph:
         return nodes     
     
     # aux functions
+    # initialise point clouds into nodes
+    # now i know how to add geometric features to the objects
+    # basically what we do is kinda the same as how we link agent nodes (have a separate function for this)
+    # what we will do is first add in the dict a list of (tl,tr,br,bl,center) and use it to do clustering algorithm (K means)
+        # a fun thing about K means is that the funciton used to claculate k means and distance can be moddded to mobius operations!
+    # then using the segmented set of nodes, we further reduce them 
+        # first use corners to define boundary (what do we do as center? maybe can encode gemoetry | center, graph) s.t given center, we can predict geometry of object
+        # then create a circular graph
+        # then topologically sort the nodes with linear operations (|p1 - center| = distance (metric to used to topologically sort them {can even think of encodding vectors}) )
+            # mobius operation can be used here too! 
+        # then find nearest nodes to each edge and connect them 
+        # graphs then becomes sparse
     def _init_nodes(self, agent_pos, point_clouds):
         
         # init agent nodes
