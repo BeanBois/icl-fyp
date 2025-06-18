@@ -53,7 +53,6 @@ class Action:
 
         # forward movement 
         translation = self.forward_movement * np.array([1,0])
-
         return rot_mat @ translation
 
     
@@ -118,9 +117,9 @@ class Player:
         moving_action = action.movement_as_matrix()
         state_change_action = action.state_change
         angle = action.rotation
-        
+        breakpoint()
         # Update the object's angle (add the rotation to current angle)
-        self.angle += angle
+        self.angle += int(angle)
         
         # Optional: Keep angle in [0, 360) range
         self.angle = self.angle % 360
@@ -825,7 +824,6 @@ class PseudoGame:
         self.object.draw(self.screen)
         for waypoint in self.waypoints:
             center = waypoint['movement']
-
             pygame.draw.circle(self.screen, (125, 125, 125), center, 5)
         pygame.display.flip()
 
@@ -1082,9 +1080,9 @@ if __name__ == "__main__":
                                 {'movement' :  np.array([225,250]), 
                                 'state-change' : None} ,
                                 {'movement' :  np.array([300,275]), 
-                                'state-change' : None} ,
-                                {'movement' :  np.array([250,200]), 
-                                'state-change' : None} ]
+                                'state-change' : None} ,]
+                                # {'movement' :  np.array([250,200]), 
+                                # 'state-change' : None} ]
     pseudogame.num_waypoints_used = 5
     pseudogame.run()
     # print('hi')
