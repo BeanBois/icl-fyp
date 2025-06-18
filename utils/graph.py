@@ -4,11 +4,11 @@ from enum import Enum
 from typing import List
 import copy
 import math
-from ..tasks.twoD.game import Action
+from ..tasks.twoD.game import Action, PlayerState
 
 class AgentState(Enum):
-    EATING = 0
-    NOT_EATING = 1
+    NOT_EATING = 0
+    EATING = 1
 
 
 class NodeType(Enum):
@@ -460,11 +460,18 @@ class ActionGraph:
                     if collided:
                         collisions.append((collision_angle))
             
-        if len(collisions) > 0:
-            predicted_agent_nodes = self._update_node_pos_based_on_collisions(predicted_agent_nodes,collisions) # this fucntion is hard to implement bffr
+        # dont care about collisions for now
+        # if len(collisions) > 0:
+            # predicted_agent_nodes = self._update_node_pos_based_on_collisions(predicted_agent_nodes,collisions) # this fucntion is hard to implement bffr
         
         predicted_graph.agent_nodes = np.array(predicted_agent_nodes)
         self.predicted_graph = predicted_graph
+
+        if self.change_state_action == PlayerState.EATING:
+            self.predicted_graph.agent_state = AgentState.EATING
+        elif self.change_state_action == PlayerState.NOT_EATING:
+            self.predicted_graph.agent_state = AgentState.NOT_EATING
+
 
     # this function is most definitely wrong HAHAHAHA
     # fix this
