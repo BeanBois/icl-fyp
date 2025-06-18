@@ -34,6 +34,30 @@ class PlayerState(Enum):
     NOT_EATING = 1
     EATING = 2
 
+# we will refactor this when everything is done
+class Action:
+    def __init__(self, forward_movement, rotation, state_change):
+        self.forward_movement = forward_movement
+        self.rotation = rotation
+        self.state_change = state_change
+    
+    # returns movement as a matrix
+    def movement_as_matrix(self):
+        # make rotation matrix 
+        rot_mat = np.zeros(shape=(2,2))
+        rotation = np.deg2rad(self.rotation)
+        rot_mat[0,0] = np.cos(rotation)
+        rot_mat[1,0] = np.sin(rotation)
+        rot_mat[0,1] = - np.sin(rotation)
+        rot_mat[1,1] = np.cos(rotation)
+
+        # forward movement 
+        translation = self.forward_movement * np.array([1,0])
+
+        return rot_mat @ translation
+
+    
+
 class Player:
     
     def __init__(self, x, y, state : PlayerState = PlayerState.NOT_EATING, screen_width = SCREEN_WIDTH, screen_height = SCREEN_HEIGHT):
@@ -86,37 +110,26 @@ class Player:
         return pygame.Rect(self.x - self.size, self.y - self.size, 
                           self.size * 2, self.size * 2)
     
-    def move_with_action(self,action):
+
+    def move_with_action(self,action : Action):
         # action is ROTATION @ TRANSLATION, SO A 2X2 matrix 
         # we need to update self.x, self.y and self.angle respectively
+        
+        moving_action = action.movement_as_matrix()
+        state_change_action = action.state_change
+        angle = action.rotation
+        
+        # Update the object's angle (add the rotation to current angle)
+        self.angle += angle
+        
+        # Optional: Keep angle in [0, 360) range
+        self.angle = self.angle % 360
+        # Update position
+        self.x += int(moving_action[0])
+        self.y += int(moving_action[1])
 
-        moving_action = action['movement']
-        state_change_action = action['state-change']
-
-        if moving_action is not None:
-
-            
-            distance = moving_action['distance']
-            angle = moving_action['angle']
-            # Apply the transformation
-            
-            # Update the object's angle (add the rotation to current angle)
-            self.angle += angle
-            
-            # Optional: Keep angle in [0, 360) range
-            self.angle = self.angle % 360
-
-            # Update position
-            rad = math.radians(self.angle)
-            self.x += distance * math.cos(rad)
-            self.y += distance * math.sin(rad)
-            # self.x += distance * math.sin(rad)
-            # self.y += distance * math.cos(rad)
-
-            
-        if state_change_action is not None:
-            if state_change_action != self.state: #here state change action will be represented by PlayerState
-                self.alternate_state()
+        if state_change_action is not None and state_change_action != self.state: #here state change action will be represented by PlayerState
+            self.alternate_state()
              
     # TL, TR, BR, BL, center dictonary
     def get_pos(self):
@@ -233,6 +246,7 @@ class GameObjective(Enum):
     REACH_GOAL = 2
 
     
+ 
 class Game:
     
     def __init__(self, num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_goals = NUM_OF_GOALS, screen_width = SCREEN_WIDTH, screen_height = SCREEN_HEIGHT, objective = None):
@@ -330,7 +344,7 @@ class Game:
         
         return True
 
-    def handle_action(self,action):
+    def handle_action(self,action : Action):
   
         if self.game_over or self.game_won:
             self.restart_game()
@@ -676,7 +690,7 @@ class PseudoGame:
         self.draw()
         self.clock.tick(60)
         self._end_game()
-        pass
+
 
     def get_obs(self):
         agent_pos = self._get_agent_pos()
@@ -763,34 +777,22 @@ class PseudoGame:
             # 'time' : self.t
         }
 
-    # function is kinda funny, it moves to the first waypoint correctly, but after that it diverges
+
     # needs to change too since we are switching x and y
     def go_to_next_waypoint(self):
-        # uncomment back after debuggin
-        # if len(self.waypoints) == 0:
-        #     return
-        # next_waypoint = self.waypoints.pop(0)
-        # #####################################
 
-
-        # for debugging comment back after done
-        if self.temp == self.num_waypoints_used:
+        if len(self.waypoints) == 0:
             return
-        next_waypoint = self.waypoints[self.temp]
-        self.temp +=1
-        # #####################################
+        next_waypoint = self.waypoints.pop(0)
 
         next_point = next_waypoint['movement']
         state_change = next_waypoint['state-change']
         player_pos = self.player.get_pos()['center']
-
-        movement_action = None
-        state_change_action = None
         # deal with movement first
         # we default movement to be a tuple of (distance, angle)
 
         if next_point is not None:
-            dydx =  next_point - np.array(player_pos)
+            dydx =  next_point - player_pos # 
             curr_player_angle = self.player.angle
             # angle_rad = np.arctan2(dydx[0], dydx[1])  # assuming [dy, dx]
             angle_rad = np.arctan2(dydx[1], dydx[0])  # assuming [dy, dx]
@@ -804,18 +806,11 @@ class PseudoGame:
             angle_diff = ((angle_diff + 180) % 360) - 180
             # then find distance
             distance = np.linalg.norm(dydx)
-
-
-        action = {
-            'movement' : {
-                'distance' : distance,
-                'angle' : angle_diff
-            },
-            'state-change' : state_change
-        }
-
-        
+        print(f"trans : {distance}, rot : {angle_diff}")
+        action = Action(forward_movement=distance, rotation=angle_diff, state_change=state_change) 
         self.player.move_with_action(action)
+        breakpoint()
+
 
     def update(self):
         player_rect = self.player.get_rect()
@@ -830,7 +825,7 @@ class PseudoGame:
         self.object.draw(self.screen)
         for waypoint in self.waypoints:
             center = waypoint['movement']
-            # center = (center[1], center[0])
+
             pygame.draw.circle(self.screen, (125, 125, 125), center, 5)
         pygame.display.flip()
 
@@ -1042,7 +1037,6 @@ class PseudoGame:
         pass
         self.waypoints = processed_waypoints
         
-
     def _get_game_obj_pos(self):
         # first get player 
         player_pos = self.player.get_pos()
@@ -1070,8 +1064,8 @@ class PseudoGame:
 if __name__ == "__main__":
 
     # Code to try Game
-    game = Game()
-    game.run()
+    # game = Game()
+    # game.run()
 
     # Code to try Game Interface for agent
     # game_interface = GameInterface()
@@ -1079,19 +1073,20 @@ if __name__ == "__main__":
     # game_interface.step()
     
     # Code to try PseudoGame
-    # pseudogame = PseudoGame(biased=True)
+    pseudogame = PseudoGame(biased=False)
     # sample points
-    # pseudogame.waypoints = [{'movement' : np.array([150,150]), 
-    #                             'state-change' : None} ,
-    #                             {'movement' :  np.array([250,200]), 
-    #                             'state-change' : None} ,
-    #                             {'movement' :  np.array([200,250]), 
-    #                             'state-change' : None} ,
-    #                             {'movement' :  np.array([325,300]), 
-    #                             'state-change' : None} ,
-    #                             {'movement' :  np.array([300,350]), 
-    #                             'state-change' : None} ]
-    # pseudogame.num_waypoints_used = 5
-    # pseudogame.run()
+    pseudogame.waypoints = [{'movement' : np.array([150,125]), 
+                                'state-change' : None} ,
+                                {'movement' :  np.array([175,200]), 
+                                'state-change' : None} ,
+                                {'movement' :  np.array([225,250]), 
+                                'state-change' : None} ,
+                                {'movement' :  np.array([300,275]), 
+                                'state-change' : None} ,
+                                {'movement' :  np.array([250,200]), 
+                                'state-change' : None} ]
+    pseudogame.num_waypoints_used = 5
+    pseudogame.run()
     # print('hi')
     # print(pseudogame.observations)
+    pass 

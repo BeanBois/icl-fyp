@@ -143,7 +143,18 @@ class LocalGraph:
     # need to convert edge objects to matrix s.t it can be used in transformers
     # this should be a N x N matrix, where N is the number of nodes
     def get_edges(self):
-        return self.edges
+        # edge have attributes weight, distance-metric, edgetype
+        edges = np.zeros((self.num_nodes, self.num_nodes, 3))
+
+        for edge in self.edges:
+            source_node_idx = self.node_idx_dict[edge.source]
+            dest_node_idx = self.node_idx_dict[edge.dest]
+            weight = edge.weight
+            distance_metric = edge.distance_feature
+            edge_type = edge.type
+            edges[source_node_idx, dest_node_idx, :] = np.array([weight,distance_metric, edge_type])
+
+        return edges
 
     # need to convert nodes into matrix s.t it can be used in transformers
     def get_nodes(self):
@@ -303,7 +314,11 @@ class DemoGraph:
         # self.temporal_edges = np.zeros((L,N,N)) # should we utilise a temporal edge?
         self.temporal_edges = None 
         self._link_all_graph_frames()
+        
 
+    # Should return a L x N x node-feature-size matrix
+    def get_nodes(self):
+        pass
 
     # this should return a L x N x N matrix, where L is the lenght of sequence, N is the number of agent nodes
     def get_temporal_edges(self):
@@ -362,7 +377,8 @@ class ContextGraph:
                 if curr_node.tag == demo_node.tag:
                     self.temporal_edges.append(Edge(source = demo_node, dest = curr_node, edge_type=EdgeType.AGENT_COND_AGENT))
 
-# 
+
+# TODO : refactor action here 
 class ActionGraph:
 
     def __init__(self, context_graph : ContextGraph, action):
@@ -452,9 +468,10 @@ class ActionGraph:
     # fix this
     def _apply_action_to_agent_node(self, agent_node):
         # complete this funciton 
-        # action consist of a rotation and translation
-        # we assume self.moving_action to be A = R @ T 
-        agent_node.pos = agent_node.pos @ self.moving_action
+        # action consist of a rotation and scalar translation
+        # we assume self.moving_action to be A = R @ T (T is forward direction [1,0], R is 2x2 matrix)
+        agent_node.pos = agent_node.pos + self.moving_action
+
         return agent_node
 
     def _check_collision(self, moving_node, static_node, collision_delta = 5):
@@ -479,6 +496,15 @@ class ActionGraph:
                 predicted_agent_nodes[i].pos = agent_node.pos - dxdy 
 
         return predicted_agent_nodes
+
+
+def make_localgraph(obs):
+    point_clouds = obs['point-clouds']
+    agent_pos = obs['agent-pos']
+    agent_state = obs['agent-state']
+    timestep = obs['time']
+    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state)
+    return graph 
 
 if __name__ == "__main__":
     # run python -m utils.graph
