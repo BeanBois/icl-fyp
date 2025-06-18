@@ -43,18 +43,15 @@ class Action:
     
     # returns movement as a matrix
     def movement_as_matrix(self):
-        # make rotation matrix 
-        rot_mat = np.zeros(shape=(2,2))
+        # If you want the movement to be relative to the player's current orientation,
+        # use the rotation to determine direction
         rotation = np.deg2rad(self.rotation)
-        rot_mat[0,0] = np.cos(rotation)
-        rot_mat[1,0] = np.sin(rotation)
-        rot_mat[0,1] = - np.sin(rotation)
-        rot_mat[1,1] = np.cos(rotation)
-
-        # forward movement 
-        translation = self.forward_movement * np.array([1,0])
-        return rot_mat @ translation
-
+        
+        # Create movement vector in the direction of rotation
+        # Since rotation 0 should point right (positive x), we use cos/sin directly
+        movement_vector = self.forward_movement * np.array([np.cos(rotation), np.sin(rotation)])
+        
+        return movement_vector
     
 
 class Player:
@@ -114,18 +111,19 @@ class Player:
         # action is ROTATION @ TRANSLATION, SO A 2X2 matrix 
         # we need to update self.x, self.y and self.angle respectively
         
-        moving_action = action.movement_as_matrix()
         state_change_action = action.state_change
         angle = action.rotation
-        breakpoint()
         # Update the object's angle (add the rotation to current angle)
         self.angle += int(angle)
         
         # Optional: Keep angle in [0, 360) range
         self.angle = self.angle % 360
+        action.rotation = self.angle
+        moving_action = action.movement_as_matrix()
+
         # Update position
-        self.x += int(moving_action[0])
-        self.y += int(moving_action[1])
+        self.x += moving_action[0]
+        self.y += moving_action[1]
 
         if state_change_action is not None and state_change_action != self.state: #here state change action will be represented by PlayerState
             self.alternate_state()
@@ -808,7 +806,6 @@ class PseudoGame:
         print(f"trans : {distance}, rot : {angle_diff}")
         action = Action(forward_movement=distance, rotation=angle_diff, state_change=state_change) 
         self.player.move_with_action(action)
-        breakpoint()
 
 
     def update(self):
