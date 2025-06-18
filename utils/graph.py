@@ -4,6 +4,7 @@ from enum import Enum
 from typing import List
 import copy
 import math
+from ..tasks.twoD.game import Action
 
 class AgentState(Enum):
     EATING = 0
@@ -75,11 +76,11 @@ class AgentNodeTag(Enum):
     
 
 class AgentNode(Node):
-
-    def __init__(self,pos,t,tag):
+    def __init__(self,pos,t, orientation, tag):
         super().__init__(pos,t)
         self.type = NodeType.AGENT
         self.tag = tag
+        self.orientation = orientation
 
 class EdibleNode(Node):
 
@@ -109,7 +110,7 @@ class GoalNode(Node):
 # This Local Graph represents a screenshot of the pointcloud at a particular timestep
 class LocalGraph:
 
-    def __init__(self, point_clouds, timestep, agent_pos, agent_state = None):
+    def __init__(self, point_clouds, timestep, agent_pos, agent_orientation ,agent_state = None):
         self.num_nodes = 0
         # maybe can remove the odx offset since we have a node_idx_dict
         self.agent_idx_offset = 0
@@ -122,7 +123,7 @@ class LocalGraph:
         self.object_nodes = None
         self.nodes = None
         self.node_idx_dict = dict()
-
+        self.agent_orientation = agent_orientation
         self._init_nodes(agent_pos, point_clouds) # initialise nodes, idx offsets and num_nodes
 
         # init agent state
@@ -182,7 +183,8 @@ class LocalGraph:
         
         # init agent nodes
         AGENT_TAGS = [AgentNodeTag.EDGE1, AgentNodeTag.EDGE2, AgentNodeTag.EDGE3, AgentNodeTag.CENTER]
-        agent_nodes = [AgentNode(coord, self.timestep, tag) for (coord, tag) in zip(agent_pos,AGENT_TAGS)]
+        # TODO update this 
+        agent_nodes = [AgentNode(coord, self.timestep, self.agent_orientation, tag) for (coord, tag) in zip(agent_pos,AGENT_TAGS)]
 
 
         # init scene nodes
@@ -381,11 +383,11 @@ class ContextGraph:
 # TODO : refactor action here 
 class ActionGraph:
 
-    def __init__(self, context_graph : ContextGraph, action):
+    def __init__(self, context_graph : ContextGraph, action : Action):
         self.context_graph = context_graph
 
-        self.moving_action = action['movement']
-        self.change_state_action = action['state-change']
+        self.moving_action = action.movement_as_matrix()
+        self.change_state_action = action.state_change
 
         self.action_edges = [] 
         self.predicted_graph = None
@@ -502,8 +504,10 @@ def make_localgraph(obs):
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']
     agent_state = obs['agent-state']
+    agent_orientation = obs['agent-orientation']
+
     timestep = obs['time']
-    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state)
+    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state, agent_orientation=agent_orientation)
     return graph 
 
 if __name__ == "__main__":
@@ -514,9 +518,10 @@ if __name__ == "__main__":
     obs = gi.start_game()
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']
+    agent_orientation = obs['agent-orientation']
     agent_state = obs['agent-state']
     timestep = obs['time']
-    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state)
+    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state, agent_orientation=agent_orientation)
 
     graph.draw_graph()
 
@@ -525,8 +530,9 @@ if __name__ == "__main__":
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']
     timestep = obs['time']
+    agent_orientation = obs['agent-orientation']
     agent_state = obs['agent-state']
-    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state)
+    graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state, agent_orientation=agent_orientation)
 
 
     graph.draw_graph()

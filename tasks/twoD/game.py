@@ -546,6 +546,7 @@ class GameInterface:
         return {
             'point-clouds': dict(color_segments),
             'agent-pos' : agent_pos,
+            'agent-orientation' : self.game.player.angle,
             'agent-state' : agent_state,
             'done': self.running,
             'time' : self.t
@@ -770,6 +771,7 @@ class PseudoGame:
             'point-clouds': dict(color_segments),
             'agent-pos' : agent_pos,
             'agent-state' : agent_state,
+            'agent-orientation' : self.player.angle,
             # 'done': self.running,
             # 'time' : self.t
         }
