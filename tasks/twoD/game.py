@@ -36,20 +36,20 @@ class PlayerState(Enum):
 
 # we will refactor this when everything is done
 class Action:
-    def __init__(self, forward_movement, rotation, state_change):
+    def __init__(self, forward_movement, orientation, state_change):
         self.forward_movement = forward_movement
-        self.rotation = rotation
+        self.orientation = orientation
         self.state_change = state_change
     
     # returns movement as a matrix
     def movement_as_matrix(self):
         # If you want the movement to be relative to the player's current orientation,
         # use the rotation to determine direction
-        rotation = np.deg2rad(self.rotation)
+        orientation = np.deg2rad(self.orientation)
         
         # Create movement vector in the direction of rotation
         # Since rotation 0 should point right (positive x), we use cos/sin directly
-        movement_vector = self.forward_movement * np.array([np.cos(rotation), np.sin(rotation)])
+        movement_vector = self.forward_movement * np.array([np.cos(orientation), np.sin(orientation)])
         
         return movement_vector
     
@@ -112,13 +112,13 @@ class Player:
         # we need to update self.x, self.y and self.angle respectively
         
         state_change_action = action.state_change
-        angle = action.rotation
+        angle = action.orientation
         # Update the object's angle (add the rotation to current angle)
-        self.angle += int(angle)
+        self.angle = angle
         
         # Optional: Keep angle in [0, 360) range
         self.angle = self.angle % 360
-        action.rotation = self.angle
+        # action.rotation = self.angle # have to hard reset. need to change st actions now represent absolute final position 
         moving_action = action.movement_as_matrix()
 
         # Update position
@@ -793,18 +793,12 @@ class PseudoGame:
             curr_player_angle = self.player.angle
             # angle_rad = np.arctan2(dydx[0], dydx[1])  # assuming [dy, dx]
             angle_rad = np.arctan2(dydx[1], dydx[0])  # assuming [dy, dx]
-
-            # Convert to degrees
-            angle_deg = np.degrees(angle_rad)
-
-            # find nearest rotation
-            angle_diff = angle_deg - curr_player_angle
-            # Normalize to [-180, 180] range for shortest rotation
-            angle_diff = ((angle_diff + 180) % 360) - 180
+            final_angle_deg = np.degrees(angle_rad)
+            
             # then find distance
             distance = np.linalg.norm(dydx)
-        print(f"trans : {distance}, rot : {angle_diff}")
-        action = Action(forward_movement=distance, rotation=angle_diff, state_change=state_change) 
+        print(f"trans : {distance}, rot : {final_angle_deg}")
+        action = Action(forward_movement=distance, orientation=final_angle_deg, state_change=state_change) 
         self.player.move_with_action(action)
 
 
