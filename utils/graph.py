@@ -48,11 +48,7 @@ class Edge:
 
     
     def get_features(self):
-        return {
-            'weight' : self.weight,
-            'distance' : self.distance_feature,
-            'rel-pos' : self.rel_pos
-        }
+        return np.array([self.weight, self.distance_feature,])
     
 
     
@@ -141,6 +137,12 @@ class LocalGraph:
         self.edges = None
         self._init_edges()
     
+    """
+    get_edges and get_nodes functions must be workable for Rho Network
+    so change them s.t they return a dictionary mapping 
+    edge-type : features
+    node-type : features
+    """
     # need to convert edge objects to matrix s.t it can be used in transformers
     # this should be a N x N matrix, where N is the number of nodes
     def get_edges(self):
@@ -154,10 +156,11 @@ class LocalGraph:
             distance_metric = edge.distance_feature
             edge_type = edge.type
             edges[source_node_idx, dest_node_idx, :] = np.array([weight,distance_metric, edge_type])
-
         return edges
 
+
     # need to convert nodes into matrix s.t it can be used in transformers
+    # FK THIS SHIT OMG IMMA KMS
     def get_nodes(self):
         nodes = np.zeros(self.num_gn + self.num_pcn)
         nodes[:self.num_gn] = self.agent_pos
@@ -393,7 +396,7 @@ class ActionGraph:
         self.predicted_graph = None
         self._apply_action_to_curr_graph()
         self._connect_curr_graph_to_predicted_graph()
-        # self._connect_demo_to_predicted_graph() i dont think we connect demo node to future predicted action
+        # self._connect_demo_to_predicted_graph() #i dont think we connect demo node to future predicted action
         pass
 
     def get_action_edges(self):

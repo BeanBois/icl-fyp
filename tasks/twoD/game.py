@@ -640,7 +640,7 @@ class PseudoGameMode:
 # pseudogame used to generate a pseudo demo
 class PseudoGame:
 
-    def __init__(self, max_num_sampled_waypoints = 6, min_num_sampled_waypoints = 2, mode = PseudoGameMode.RANDOM, biased = False, 
+    def __init__(self, max_num_sampled_waypoints = 6, min_num_sampled_waypoints = 2, mode = PseudoGameMode.RANDOM, biased = True, 
                  augmented = False, screen_width = 400, screen_height = 300, num_sampled_point_clouds = 20):
         
         # setup configs for pseudo game
@@ -655,7 +655,6 @@ class PseudoGame:
         self.clock = pygame.time.Clock()
         self.player = Player(100, 100)
         self.t = 0
-        self.temp = 0 # remove this when useless
         self.object = None
 
         # setup game by creating relevant object
@@ -667,6 +666,7 @@ class PseudoGame:
         self.augmented = augmented
         self.waypoints = []
         self.observations = []
+        self.final_action = None
         self._sample_waypoints()
 
 
@@ -677,11 +677,11 @@ class PseudoGame:
         obs = self.get_obs()
         self.observations.append(obs)
         while self.num_waypoints_used > self.t:
+            self.t += 1
             self.go_to_next_waypoint()
             self.update()
             self.draw()
             self.clock.tick(60)
-            self.t += 1
             obs = self.get_obs()
             self.observations.append(obs)
         self.update()
@@ -801,6 +801,8 @@ class PseudoGame:
             distance = np.linalg.norm(dydx)
         print(f"trans : {distance}, rot : {final_angle_deg}")
         action = Action(forward_movement=distance, orientation=final_angle_deg, state_change=state_change) 
+        if self.t == self.num_waypoints_used:
+            self.final_action = action
         self.player.move_with_action(action)
 
 
