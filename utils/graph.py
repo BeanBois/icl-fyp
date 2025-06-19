@@ -77,6 +77,9 @@ class AgentNode(Node):
         self.type = NodeType.AGENT
         self.tag = tag
         self.orientation = orientation
+    
+    def get_features(self):
+        return np.array([self.pos[0], self.pos[1], self.tag, self.orientation])
 
 class EdibleNode(Node):
 
@@ -86,7 +89,10 @@ class EdibleNode(Node):
         self.eaten = False 
     
     def set_eaten(self):
-        self.eaten = True 
+        self.eaten = True
+
+    def get_features(self):
+        return np.array([self.pos[0], self.pos[1], self.eaten]) 
 
 class ObstacleNode(Node):
 
@@ -94,12 +100,17 @@ class ObstacleNode(Node):
         super().__init__(pos,t)
         self.type = NodeType.OBSTACLE
 
+    def get_features(self):
+        return np.array([self.pos[0], self.pos[1]]) 
+
 class GoalNode(Node):
 
     def __init__(self, pos,t):
         super().__init__(pos,t)
         self.type = NodeType.GOAL
 
+    def get_features(self):
+        return np.array([self.pos[0], self.pos[1]]) 
 
 
 
@@ -141,33 +152,49 @@ class LocalGraph:
     get_edges and get_nodes functions must be workable for Rho Network
     so change them s.t they return a dictionary mapping 
     edge-type : features
-    node-type : features
+    node-type : features, index 
     """
     # need to convert edge objects to matrix s.t it can be used in transformers
     # this should be a N x N matrix, where N is the number of nodes
     def get_edges(self):
         # edge have attributes weight, distance-metric, edgetype
-        edges = np.zeros((self.num_nodes, self.num_nodes, 3))
+        edges_dict = dict()
+
+        connection_matrix = np.zeros((self.num_nodes, self.num_nodes))
 
         for edge in self.edges:
             source_node_idx = self.node_idx_dict[edge.source]
             dest_node_idx = self.node_idx_dict[edge.dest]
             weight = edge.weight
             distance_metric = edge.distance_feature
-            edge_type = edge.type
-            edges[source_node_idx, dest_node_idx, :] = np.array([weight,distance_metric, edge_type])
-        return edges
+            connection_matrix[source_node_idx, dest_node_idx] = 1
+            data = np.array([source_node_idx, dest_node_idx, weight, distance_metric])
+            if edge.type not in edges_dict.keys():
+                edges_dict[edge.type] = [data]
+            else:
+                edges_dict[edge.type].append(data)
+            
+            # make into array
+            for edge_type in edges_dict.keys():
+                edges_dict[edge_type] = np.array(edges_dict[edge_type])
+
+        return edges_dict, connection_matrix
 
 
     # need to convert nodes into matrix s.t it can be used in transformers
-    # FK THIS SHIT OMG IMMA KMS
     def get_nodes(self):
-        nodes = np.zeros(self.num_gn + self.num_pcn)
-        nodes[:self.num_gn] = self.agent_pos
-        nodes[self.num_gn:] = np.array([
-            pc.pos for pc in self.point_clouds
-        ])
-        return nodes     
+        nodes_dict = dict()
+        for node in self.nodes:
+            features = node.get_feature()
+            index = np.array(self.node_idx_dict[node])
+            data = np.concatenate((index,features))
+            if node.type not in nodes_dict.keys():
+                nodes_dict[node.type] = [data]
+            else:
+                nodes_dict[node.type].append(data)
+        for node_type in NodeType:
+            nodes_dict[node_type] = np.array(nodes_dict[node_type])
+        return nodes_dict   
     
     # aux functions
     # initialise point clouds into nodes
