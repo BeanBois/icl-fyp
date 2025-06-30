@@ -7,6 +7,7 @@ import numpy as np
 from enum import Enum
 
 from ..utils.graph import EdgeType, NodeType
+from typing import Dict, List, Tuple
 
 
 
@@ -118,10 +119,24 @@ class HeteroAttentionLayer(nn.Module):
 
     # hidden dim in original paper is used bc of the occupancy net?
     # to overcome this, I will add an pre-linear layer to transform each node types to hidden dim
-    def __init__(self, node_types, edge_types, hidden_dim = 1024, num_heads = 16, head_dim = 64):
+    """
+    Args:
+        num_node_feature is a dictionary with key as Nodetype, and value as num feature for that node type
+        num_edge_feature is a dictionary with key as Edgetype, and value as num feature for that edge type
+    """
+    def __init__(self, 
+                 node_types : List[NodeType], 
+                 edge_types : List[EdgeType], 
+                 num_node_features : Dict[NodeType, int], 
+                 num_edge_feature : Dict[EdgeType, int], 
+                 hidden_dim = 1024, 
+                 num_heads = 16, 
+                 head_dim = 64):
         super(HeteroAttentionLayer, self).__init__()
 
+        # network configurations 
         self.node_types = node_types
+        self.output_dim = hidden_dim
         self.edge_types = edge_types
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
@@ -129,44 +144,101 @@ class HeteroAttentionLayer(nn.Module):
 
         # functions declarations 
         self.softmax = torch.nn.Softmax
-        
-
 
         self.W1 = nn.ModuleDict({
-            node_type : nn.Linear(hidden_dim, hidden_dim)
+            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
             for node_type in node_types 
         })
 
         self.W2 = nn.ModuleDict({
-            node_type : nn.Linear(hidden_dim, hidden_dim)
+            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
             for node_type in node_types
         })
 
         self.W3 = nn.ModuleDict({
-            node_type : nn.Linear(hidden_dim, hidden_dim)
+            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
             for node_type in node_types
         })
 
         self.W4 = nn.ModuleDict({
-            node_type : nn.Linear(hidden_dim, hidden_dim)
+            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
             for node_type in node_types
         })
 
         self.W5 = nn.ModuleDict({
-            edge_type : nn.Linear(hidden_dim, hidden_dim)
+            edge_type : nn.Linear(num_edge_feature[edge_type], hidden_dim)
             for edge_type in edge_types
         })
 
+    def _find_index(self, index_dict, index):
+        for _type, indexes in index_dict:
+            if index in indexes:
+                target_index = indexes.index(index)
+                return (_type, target_index)
+    
+    def _find_from_index(self,dicitonary, index):
+        _type = index[0]
+        _index = index[1]
+        return dicitonary[_type][_index]
 
-    def _attention_mechanism(self,X,A):
-        pass 
 
-    # Here X holds num_nodes * features_size (hidden_dim)
-    def forward(self,X,A): 
-        # first apply self W1Fi
+    # now need to reshape the matrixes into [self.num_heads, self.head_dim]
+    def forward(self,
+                X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
+                node_index_dict : Dict[NodeType, List[int]], # dictionary of list containing node-indexes
+                A : torch.Tensor, # Adj matrix 
+                E : Dict[EdgeType, torch.Tensor], # dictionary of matrix containing edge-features 
+                edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix
+                ) -> Dict[NodeType, torch.Tensor]: 
+        
+        # first calculate W1Fi and w3fi and w5eij
+        w1f = dict()
+        w2f = dict()
+        w3f = dict()
+        w4f = dict()
+        w5f = dict()
 
-        pass
+        for node_type, node_feature_matrix in X:
+            w1f[node_type] = self.W1[node_type](node_feature_matrix)
+            w2f[node_type] = self.W2[node_type](node_feature_matrix)
+            w3f[node_type] = self.W3[node_type](node_feature_matrix)
+            w4f[node_type] = self.W4[node_type](node_feature_matrix)
 
+        for edge_type, edge_feature_matrix in E:
+            w5f[edge_type] = self.W5[edge_type](edge_feature_matrix)
+
+        # now to combine them 
+
+        # first add w1f 
+        final_X = w1f
+
+    
+        # then iterate thru neighbours with adj matrix to get attention score and neigh(i) agg for nodes and edges
+        # from adj matrix, we know which node and edge to select 
+        for node_type, node_feature_matrix in w1f:
+            for i in range(node_feature_matrix.size[0]):
+                curr_node_index = self._find_index(node_index_dict,i) # used to find nodes in node dictionary
+
+                target_node_indexes = []
+                summation = torch.zeros_like(final_X[curr_node_index[0]][curr_node_index[1]])
+                for j in range(node_feature_matrix.size[0]):
+                    if A[i,j] != 0:
+                        target_node_index = self._find_index(node_index_dict, j)
+                        target_edge_index = self._find_index(edge_index_dict, (i,j))
+                
+
+                        _w3f = self._find_from_index(w3f,curr_node_index) # curr node 
+                        _w4f = self._find_from_index(w4f,target_node_index) # adj node
+                        _w5f = self._find_from_index(w5f,target_edge_index) # adj edge
+                        _numerator = torch.matmul(_w3f.T, _w4f + _w5f)
+                        _denominator = torch.sqrt(self.head_dim) 
+                        attention_score = self.softmax(_numerator / _denominator)
+                        _w2f = self._find_from_index(w2f, target_node_index)
+                        summation += attention_score * (_w2f + _w5f)
+                
+                final_X[curr_node_index[0]][curr_node_index[1]] += summation                
+
+        return final_X
 
 
 

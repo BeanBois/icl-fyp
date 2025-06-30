@@ -106,7 +106,7 @@ class HeterogeneousGraphTransformer(nn.Module):
             edge_feat = edge_features[edge_type]
             
             # Get node types for source and destination
-            src_types = node_types_per_node[src_nodes]
+            src_types = node_types_per_node[src_nodes] # returns the types of source nodes
             dst_types = node_types_per_node[dst_nodes]
             
             # Process edges by src_type, dst_type combination

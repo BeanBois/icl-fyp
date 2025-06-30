@@ -33,22 +33,37 @@ class EdgeType(Enum):
     # this type of edge links demo gripper node to predicted graphs (from current graph, with diffusion model)
     AGENT_DEMOACTION_AGENT = b'1000000'
 
+
+def SinCosEdgeEmbedding(source, dest, D = 3):
+
+    num_feature = source.shape[0]
+    embedding = np.zeros((num_feature, 2 * D))
+    diff = dest - source 
+    aux_func = lambda d : np.array([np.sin(2**d  * np.pi * diff), np.cos(2**d  * np.pi * diff)]) 
+
+    for d in range(D):
+        embedding[:,d:d+2] =  aux_func(d)
+    return embedding
+
+    
+
+
 class Edge:
 
-    def __init__(self,source, dest, edge_type,  distance_metric = lambda x,y : np.abs(np.linalg.norm(x-y)), weight = 1):
+    def __init__(self,source, dest, edge_type,  embedding_fucntion = SinCosEdgeEmbedding, weight = 1):
         self.source = source
         self.dest = dest
         self.weight = weight 
-        self.distance_feature = distance_metric(source.pos, dest.pos)
+        self.position_feature = embedding_fucntion(source.pos, dest.pos)
         self.type = edge_type
         self.rel_pos = dest.pos - source.pos 
-        # a vector for now, in ip paper a sine/cosine emb is used 
-        # sin(2^0 * pi * (p_j-p_i), cos(2^0 * pi * (p_j - p_i) ... sin(2^(D-1) ... , cos(2^(D-1)...)
+        # a vector for now, in ip paper a sine/cosine emb is used. this is edgfe attributes
+        # sin(2^0 * (p_j-p_i), cos(2^0 * (p_j - p_i) ... sin(2^(D-1) ... , cos(2^(D-1)...)
         
 
     
     def get_features(self):
-        return np.array([self.weight, self.distance_feature,])
+        return [self.weight, self.position_feature]
     
 
     
