@@ -78,10 +78,30 @@ Modules each have 5 kinds of weights:
 # 'nodes' will be a num_nodes x num_features matrix 
 class RhoNN(nn.Module):
 
-    def __init__(self, num_nodes, num_node_feature, num_edges, num_edge_feature):
+    def __init__(self, num_node_feature, num_edge_feature):
         super(RhoNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_TO_AGENT, EdgeType.AGENT_TO_OBJECT, EdgeType.OBJECT_TO_OBJECT]
         self.node_types = [node_type for node_type in NodeType]
+        self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       num_edge_feature=num_edge_feature)
+        self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       num_edge_feature=num_edge_feature)
+
+    def forward(self,
+                X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
+                node_index_dict : Dict[NodeType, List[int]], # dictionary of list containing node-indexes
+                A : torch.Tensor, # Adj matrix 
+                E : Dict[EdgeType, torch.Tensor], # dictionary of matrix containing edge-features 
+                edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix)
+    ):
+        z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
+        z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
+
+        return z2
 
 
 # additionally propagates information through the demonstrated trajectories and allows all the relvant information from the context to be gathered at the gripper nodes of the current subgraph 
@@ -90,10 +110,30 @@ class RhoNN(nn.Module):
 # 'nodes' will be a num_agent_nodes x num_features matrix 
 class PhiNN(nn.Module):
 
-    def __init__(self, num_nodes, num_node_feature, num_edges, num_edge_feature):
+    def __init__(self, num_node_feature, num_edge_feature):
         super(PhiNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_COND_AGENT, EdgeType.AGENT_DEMO_AGENT]
         self.node_types = [node_type for node_type in NodeType]
+        self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       num_edge_feature=num_edge_feature)
+        self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       num_edge_feature=num_edge_feature)
+
+    def forward(self,
+                X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
+                node_index_dict : Dict[NodeType, List[int]], # dictionary of list containing node-indexes
+                A : torch.Tensor, # Adj matrix 
+                E : Dict[EdgeType, torch.Tensor], # dictionary of matrix containing edge-features 
+                edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix)
+    ):
+        z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
+        z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
+        
+        return z2
 
 
 # propagates information to nodes in the graph representing the actions
@@ -103,14 +143,32 @@ class PhiNN(nn.Module):
 # 'nodes' will be a num_agent_nodes x num_features matrix 
 class PsiNN(nn.Module):
 
-    def __init__(self, num_nodes, num_node_feature, num_edges, num_edge_feature):
+    def __init__(self, num_node_feature, num_edge_feature):
         super(PsiNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_TIME_ACTION_AGENT]
         self.node_types = [node_type for node_type in NodeType]
+        self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       num_edge_feature=num_edge_feature)
+        self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       num_edge_feature=num_edge_feature)
 
 
 
-
+    def forward(self,
+                X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
+                node_index_dict : Dict[NodeType, List[int]], # dictionary of list containing node-indexes
+                A : torch.Tensor, # Adj matrix 
+                E : Dict[EdgeType, torch.Tensor], # dictionary of matrix containing edge-features 
+                edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix)
+    ):
+        z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
+        z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
+        
+        return z2
 
 
 # This transformer will act on 3 types of graph:
@@ -169,20 +227,8 @@ class HeteroAttentionLayer(nn.Module):
             edge_type : nn.Linear(num_edge_feature[edge_type], hidden_dim)
             for edge_type in edge_types
         })
-
-    def _find_index(self, index_dict, index):
-        for _type, indexes in index_dict:
-            if index in indexes:
-                target_index = indexes.index(index)
-                return (_type, target_index)
-    
-    def _find_from_index(self,dicitonary, index):
-        _type = index[0]
-        _index = index[1]
-        return dicitonary[_type][_index]
-
-
     # now need to reshape the matrixes into [self.num_heads, self.head_dim]
+   
     def forward(self,
                 X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
                 node_index_dict : Dict[NodeType, List[int]], # dictionary of list containing node-indexes
@@ -239,6 +285,19 @@ class HeteroAttentionLayer(nn.Module):
                 final_X[curr_node_index[0]][curr_node_index[1]] += summation                
 
         return final_X
+    def _find_index(self, index_dict, index):
+        for _type, indexes in index_dict:
+            if index in indexes:
+                target_index = indexes.index(index)
+                return (_type, target_index)
+    
+    def _find_from_index(self,dicitonary, index):
+        _type = index[0]
+        _index = index[1]
+        return dicitonary[_type][_index]
+
+
+
 
 
 
