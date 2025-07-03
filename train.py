@@ -64,8 +64,7 @@ class PseudoDemoGenerator:
     def _get_context(self, mode):
         context = []
         for _ in range(self.N - 1):
-            pseudo_demo = PseudoGame(mode=mode)
-            pseudo_demo.run()
+            pseudo_demo = self._run_game(mode)
             observations = pseudo_demo.observations 
             context.append(observations)
         return context
@@ -75,8 +74,7 @@ class PseudoDemoGenerator:
         return torch.linspace(beta_start, beta_end, timesteps)
     
     def _get_ground_truth(self,mode):
-        pseudo_demo = PseudoGame(mode=mode)
-        pseudo_demo.run()
+        pseudo_demo = self._run_game(mode)
         true_obs = pseudo_demo.observations
         true_actions = pseudo_demo.get_actions() 
         # then put true_actions into tensor since we will be using it
