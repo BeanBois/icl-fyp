@@ -6,21 +6,35 @@ from agent.nn_components import HeterogeneousGraphTransformer
 import numpy as np
 from enum import Enum
 
-from ..utils.graph import EdgeType, NodeType
+# from ..utils.graph import DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType, make_localgraph # use when running this file
+from utils.graph import DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType, make_localgraph # use when running from rwd
+
+# from ..tasks.twoD.game import Action # use when running this file
+from tasks.twoD.game import Action# use when running from rwd
+
 from typing import Dict, List, Tuple
 
+# TODO apply layer norm and residuals to rho, psi phi
+# Layer normalization
+# self.layer_norms = nn.ModuleDict({
+#     node_type: nn.ModuleList([
+#         nn.LayerNorm(hidden_dim),
+#         nn.LayerNorm(hidden_dim)
+#     ]) for node_type in node_types
+# })
+# ...
+# Apply layer norm and residual
+# for node_type in output1.keys():
+#     if node_type in combined_graph['node_features']:
+#         normed = self.layer_norms[node_type][0](output1[node_type])
+#         output1[node_type] = normed + combined_graph['node_features'][node_type]
+        
 
-
-class InstantPolicyAgent:
-
-    def __init__(self):
-        pass
-
-    def _train(self):
-        pass
-
-    def _eval(self):
-        pass
+# # Network to combine multiple demonstration trajectories
+# self.demo_aggregation = nn.ModuleDict({
+#     node_type: nn.Linear(hidden_dim, hidden_dim)
+#     for node_type in node_types
+# })
 
 # Auxiliary functions/ classes 
 
@@ -69,7 +83,353 @@ Modules each have 5 kinds of weights:
     4 node types in total, edge types will be discussed individually
 """
 
+# to account for node features, we do it at this level lmao solves 1,2,4 lol
+# 3 is just tuff icl
+# but still need to remove the node and edge features and all that sadge
+# for agent node embd use nn.Embedding to embed num_agent_node * prediciton steps 
+# flatten and change to tensor
+# def SinCosEdgeEmbedding(source, dest, D = 3):
 
+#     num_feature = source.shape[0]
+#     embedding = np.zeros((num_feature, 2 * D))
+#     diff = dest - source 
+#     aux_func = lambda d : np.array([np.sin(2**d  * np.pi * diff), np.cos(2**d  * np.pi * diff)]) 
+
+#     for d in range(D):
+#         embedding[:,d:d+2] =  aux_func(d)
+#     return embedding
+
+def SinCosEdgeEmbedding(source, dest, device, D=3):
+    num_feature = source.shape[0]
+    embedding = torch.zeros((num_feature, 2 * D), device=device)
+    diff = torch.tensor(dest - source)
+    for d in range(D):
+        sin_vals = torch.sin(2**d * torch.pi * diff)
+        cos_vals = torch.cos(2**d * torch.pi * diff)
+        embedding[:, 2*d] = sin_vals
+        embedding[:, 2*d+1] = cos_vals
+    
+    return embedding
+
+
+
+class InstantPolicy(nn.Module):
+    
+    def __init__(self, 
+                device,
+                num_agent_nodes = 4, 
+                pred_horizon = 5, 
+                hidden_dim = 64, 
+                node_embd_dim = 16,
+                edge_embd_dim = 16,
+                agent_state_embd_dim = 4,
+                edge_pos_dim = 2):
+        super(InstantPolicy, self).__init__()
+
+        self.device = device
+        self.num_agent_nodes = num_agent_nodes
+        self.pred_horizon = pred_horizon
+        self.hidden_dim = hidden_dim
+        self.node_embd_dim = node_embd_dim
+        self.edge_embd_dim = edge_embd_dim
+        self.agent_state_embd_dim = agent_state_embd_dim
+
+        # embedders
+        self.agent_embedder = nn.Embedding(
+            self.num_agent_nodes * self.pred_horizon,
+            self.node_embd_dim - self.agent_state_embd_dim, 
+            device=self.device
+        )
+        self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim)
+        self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
+        self.object_embedders = nn.ModuleDict({
+            node_type.name : nn.Embedding(1,self.node_embd_dim)
+            for node_type in NodeType if node_type != NodeType.AGENT
+        }) # 1 embedder for each node type except for agent nodes since they share similar geometry
+        self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim)
+
+        # components
+        self.rho = RhoNN(num_node_feature=self.node_embd_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
+        self.phi = PhiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
+        self.psi = PsiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
+
+        self.pred_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.node_embd_dim),
+            nn.GELU(),
+            nn.Linear(self.node_embd_dim,2),
+        )
+
+        self.pred_head_rot = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.node_embd_dim),
+            nn.GELU(),
+            nn.Linear(self.node_embd_dim,1),
+        )
+
+        self.pred_head_g = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.node_embd_dim),
+            nn.GELU(),
+            nn.Linear(self.node_embd_dim,1),
+        )
+
+
+    # εθ(Gk) = ψ(G(σ(Ga_l),ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N)))
+    # might be going abuot it the wrong way. bottom up > top bottom
+    def _embed_local_graph(self,graph):
+
+        # Embed Nodes first
+        node_features_dict = dict()
+        node_index_dict_by_type = dict()
+        nodes, node_idx_dict_by_node = graph.get_nodes()
+
+
+        for node in nodes:
+            index = node_idx_dict_by_node[node]
+            x = index 
+            if graph.timestep > self.pred_horizon:
+                x += (graph.timestep - self.pred_horizon) * len(self.num)
+            x = torch.tensor([x], device=self.device, dtype=torch.long)
+            node_embd = None
+            if node.type is NodeType.AGENT:
+                agent_state = torch.tensor([graph.agent_state.value],device = self.device).float()
+                agent_state_emb = self.agent_state_embedder(agent_state)
+                agent_node_emb = self.agent_embedder(x).view(-1)
+                node_embd = torch.cat([agent_node_emb, agent_state_emb], dim = -1)
+
+            else:
+                embedder = self.object_embedders[node.type.name] # think about this too
+                node_embd = embedder(torch.tensor([0],device = self.device, dtype=torch.long))
+
+
+            
+            if node.type not in node_index_dict_by_type.keys():
+                node_index_dict_by_type[node.type] = [index]
+                node_features_dict[node.type] = node_embd.view(1,-1)
+
+            else:
+                node_index_dict_by_type[node.type].append(index)
+                node_features_dict[node.type] = torch.cat([node_features_dict[node.type], node_embd.view(1,-1)], dim = 0)
+
+        
+
+        # embed edges 
+        edge_features_dict = dict()
+        edge_index_dict = dict()
+        connection_matrix = np.zeros((len(nodes), len(nodes)))
+        edges = graph.get_edges()
+        for edge in edges:
+            source_node_idx = node_idx_dict_by_node[edge.source]
+            dest_node_idx = node_idx_dict_by_node[edge.dest]
+            connection_matrix[source_node_idx, dest_node_idx] = 1
+            edge_emb = None 
+            if edge.type is EdgeType.AGENT_COND_AGENT:
+                edge_emb = self.agent_cond_agent_edge_emb(0) # think about this
+            else:
+                source_pos = edge.source.pos 
+                dest_pos = edge.dest.pos
+                edge_emb = self.spatial_edge_embedding(source_pos, dest_pos)
+
+            if edge.type not in edge_index_dict.keys():
+                edge_features_dict[edge.type]  = edge_emb.view(1,-1)
+                edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]
+            else:
+                edge_features_dict[edge.type]= torch.cat([edge_features_dict[edge.type], edge_emb.view(1,-1)], dim=0)
+                edge_index_dict[edge.type].append((source_node_idx,dest_node_idx))
+                
+        for edge_type in edge_features_dict.keys():
+            edge_features_dict[edge_type] = torch.tensor(edge_features_dict[edge_type], device = self.device)
+
+        return node_features_dict, node_index_dict_by_type, edge_features_dict, edge_index_dict, connection_matrix
+
+
+    def forward(self, 
+                curr_obs, # 1 
+                provided_demos, # list of demos, whereby each demo contains a list of observation,
+                actions, # list of actions?
+                ):
+        curr_graph_agent_node_embeddings_dict = dict()
+        # # σ(Gt_l)
+        curr_graph = make_localgraph(curr_obs)
+        # embed current nodes and transform
+        curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_E, edge_idx_dict, curr_graph_A = self._embed_local_graph(curr_graph)
+        
+        rho_current = self.rho(curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_A, curr_graph_E, edge_idx_dict)
+        # store current agent node embeddings
+        curr_agent_nodes_embeddings = rho_current[NodeType.AGENT]
+        for agent_nodes,curr_agent_nodes_embedding in zip(curr_graph.agent_nodes, curr_agent_nodes_embeddings):
+            curr_graph_agent_node_embeddings_dict[agent_nodes] = curr_agent_nodes_embedding
+
+
+        # {σ(G1:L_l )}1:N
+        demo_graphs = []
+        demo_graph_agent_node_embeddings_dict = dict()
+        for demo in provided_demos:
+            graph_seq = []
+            for obs in demo:
+                g = make_localgraph(obs)
+                g_X, node_idx_dict_by_type, g_E, edge_idx_dict, g_A = self._embed_local_graph(g)
+                _rho = self.rho(g_X, node_idx_dict_by_type, g_A, g_E, edge_idx_dict)
+                agent_nodes_embeddings = _rho[NodeType.AGENT]
+                for agent_node,agent_nodes_embedding in zip(g.agent_nodes, agent_nodes_embeddings):
+                    demo_graph_agent_node_embeddings_dict[agent_node] = agent_nodes_embedding
+                graph_seq.append(g)
+
+            demo_graph = DemoGraph(graph_seq)
+            demo_graphs.append(demo_graph)
+        
+
+        # G_c(σ(Gt_l),{σ(G1:L_l )}1:N)
+        context_graph = ContextGraph(current_graph=curr_graph, demo_graphs=demo_graphs)
+
+        # embed context graph nodes
+        context_graph_nodes, context_graph_node_idx_dict_by_node = context_graph.get_temporal_nodes()
+        context_graph_node_features = dict()
+        context_graph_node_index_dict_by_type = dict()
+        # hmm tensorfy this 
+        # use rho_current and rho_demos to 'construct' new node features for self.phi
+        for node in context_graph_nodes:
+            index = context_graph_node_idx_dict_by_node[node]
+            if node in demo_graph_agent_node_embeddings_dict.keys():
+                features = demo_graph_agent_node_embeddings_dict[node]
+            if node in curr_graph_agent_node_embeddings_dict.keys():
+                features = curr_graph_agent_node_embeddings_dict[node]
+
+            if node.type not in context_graph_node_features.keys():
+                context_graph_node_index_dict_by_type[node.type] = [index]
+                context_graph_node_features[node.type] = features.view(1,-1)
+            else:
+                context_graph_node_index_dict_by_type[node.type].append(index)
+                context_graph_node_features[node.type] = torch.cat([context_graph_node_features[node.type],features.view(1,-1)])
+
+        # then for edges
+        context_graph_edges = context_graph.get_temporal_edges()
+        context_graph_edge_features = dict()
+        context_graph_edge_index_dict = dict()
+        context_connection_matrix = np.zeros((len(context_graph_nodes), len(context_graph_nodes)))
+        for edge in context_graph_edges:
+            source_node_idx = context_graph_node_idx_dict_by_node[edge.source]
+            dest_node_idx = context_graph_node_idx_dict_by_node[edge.dest]
+            context_connection_matrix[source_node_idx, dest_node_idx] = 1
+            feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos)
+            if edge.type not in context_graph_edge_features.keys():
+                context_graph_edge_features[edge.type] = feature.view(1,-1)
+                context_graph_edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]
+
+            else:
+                context_graph_edge_features[edge.type] = torch.cat([context_graph_edge_features[edge.type], feature.view(1,-1)])
+                context_graph_edge_index_dict[edge.type].append((source_node_idx,dest_node_idx))
+
+
+        
+        # ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N))
+        phi = self.phi(context_graph_node_features, 
+                       context_graph_node_index_dict_by_type, 
+                       context_connection_matrix, 
+                       context_graph_edge_features, 
+                       context_graph_edge_index_dict)
+        
+
+        # use phi to update node features for current graph agent nodes 
+        phi_agent_node_emb = phi[NodeType.AGENT]
+        for curr_agent_node in curr_graph_agent_node_embeddings_dict.keys():
+            node_idx = context_graph_node_idx_dict_by_node[curr_agent_node]
+            type_idx = curr_graph_node_idx_dict_by_type[NodeType.AGENT].index(node_idx)
+            curr_graph_agent_node_embeddings_dict[curr_agent_node] = phi_agent_node_emb[type_idx]
+
+
+        # here will be pretty complex but whats happening is :
+        # first construct action graph with curr graph 
+        # then get embeddings for predicted graph with self.Rho
+        # 
+        # reconstruct node embedding for current_graph.agent_nodes, first with phi
+        # then use curr_node_emb and actions to construct predictions
+        predictions = torch.zeros((actions.shape),device = self.device)
+        t = 0
+        for action in actions:
+            action_obj = self._recover_action_obj(action)
+            action_graph = ActionGraph(curr_graph, action_obj)
+
+            predicted_graph = action_graph.predicted_graph
+
+            predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_E, edge_idx_dict, predicted_graph_A = self._embed_local_graph(predicted_graph)
+            # get σ(Ga_l)
+            # error here?
+            rho_action = self.rho(predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_A, predicted_graph_E, edge_idx_dict)
+            
+
+            # then use rho_action and curr_node emb to update features of action node embeddings 
+            action_nodes, action_index_dict_by_nodes = action_graph.get_action_nodes()
+            action_node_embd = dict()
+            action_node_idx_dict_by_type = dict()
+
+            for action_node in action_nodes:
+                node_index = action_index_dict_by_nodes[action_node]
+                features = None
+                # set features
+                if action_node in curr_graph_agent_node_embeddings_dict.keys():
+                    # get features from current node embeddings, ones that have agg. context
+                    features = curr_graph_agent_node_embeddings_dict[action_node]
+                else:
+                    # get features from rho node embeddings, ones that have agg. future scene 
+                    _index_offset = -4 # since 4 agent nodes are used, offset here 
+                    type_index = predicted_graph_node_idx_dict_by_type[NodeType.AGENT].index(node_index + _index_offset)
+                    features = rho_action[NodeType.AGENT][type_index]
+
+                if node.type not in action_node_embd.keys():
+                    action_node_idx_dict_by_type[node.type] = [node_index]
+                    action_node_embd[node.type] =  features.view(1,-1) 
+                else:
+                    action_node_idx_dict_by_type[node.type].append(node_index)
+                    action_node_embd[node.type] = torch.cat([action_node_embd[node.type],features.view(1,-1)])
+
+            # then build edge emb for action graph
+            action_edges = action_graph.get_action_edges()
+            action_graph_edge_features = dict()
+            action_graph_edge_index_dict = dict()
+            action_connection_matrix = np.zeros((len(context_graph_nodes), len(context_graph_nodes)))
+            for edge in action_edges:
+                source_node_idx = action_index_dict_by_nodes[edge.source]
+                dest_node_idx = action_index_dict_by_nodes[edge.dest]
+                action_connection_matrix[source_node_idx, dest_node_idx] = 1
+                feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos)
+                if edge.type not in action_graph_edge_features.keys():
+                    action_graph_edge_features[edge.type] = feature.view(1,-1)
+                    action_graph_edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]
+
+                else:
+                    action_graph_edge_features[edge.type] = torch.cat([action_graph_edge_features[edge.type], feature.view(1,-1)])
+                    action_graph_edge_index_dict[edge.type].append((source_node_idx,dest_node_idx))
+
+            # finally get psi
+            psi = self.psi(action_node_embd, action_node_idx_dict_by_type, action_connection_matrix, action_graph_edge_features, action_graph_edge_index_dict)
+
+
+            agent_nodes = psi[NodeType.AGENT]
+            agent_translation = self.pred_head(agent_nodes).mean()
+            agent_rotation = self.pred_head_rot(agent_nodes).mean()
+            agent_state_change = self.pred_head_g(agent_nodes).mean()
+            # need to further agg. since the predictions comes out for 8 diff nodes. 
+            # breakpoint()
+
+            predictions[t, :2] = agent_translation
+            predictions[t, 2:3] = agent_rotation
+            predictions[t, 3:4] = agent_state_change
+            t +=1
+
+        return predictions
+
+    def _recover_action_obj(self, action):
+        x, y, theta, state_change = action
+        forward_movement = np.sqrt(x**2 + y**2)
+        
+        # Method 2: Signed projection (can be negative if moving backward)
+        forward_dir = np.array([np.cos(theta), np.sin(theta)])
+        movement = np.array([x, y])
+        forward_movement = np.dot(movement, forward_dir)
+
+        # then get state change
+        state_change = int(state_change)
+        # breakpoint()
+        return Action(forward_movement=forward_movement, rotation=theta, state_change=state_change)
 
 ## Modules/Networks for agent
 # operates on local subgraphs G_l and propagates initial information about the point cloud observations to the gripper nodes
@@ -78,17 +438,21 @@ Modules each have 5 kinds of weights:
 # 'nodes' will be a num_nodes x num_features matrix 
 class RhoNN(nn.Module):
 
-    def __init__(self, num_node_feature, num_edge_feature):
+    def __init__(self, num_node_feature, output_size, num_edge_feature):
         super(RhoNN, self).__init__()
-        self.edge_types = [EdgeType.AGENT_TO_AGENT, EdgeType.AGENT_TO_OBJECT, EdgeType.OBJECT_TO_OBJECT]
+        self.edge_types = [EdgeType.AGENT_TO_AGENT, EdgeType.OBJECT_TO_AGENT, EdgeType.OBJECT_TO_OBJECT]
         self.node_types = [node_type for node_type in NodeType]
+        
         self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=num_node_feature,
-                                       num_edge_feature=num_edge_feature)
+                                       hidden_dim=output_size,
+                                       num_edge_feature=num_edge_feature,
+                                       )
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
-                                       num_node_features=num_node_feature,
+                                       num_node_features=output_size,
+                                       hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
 
     def forward(self,
@@ -110,17 +474,19 @@ class RhoNN(nn.Module):
 # 'nodes' will be a num_agent_nodes x num_features matrix 
 class PhiNN(nn.Module):
 
-    def __init__(self, num_node_feature, num_edge_feature):
+    def __init__(self, num_node_feature, output_size, num_edge_feature):
         super(PhiNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_COND_AGENT, EdgeType.AGENT_DEMO_AGENT]
         self.node_types = [node_type for node_type in NodeType]
         self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=num_node_feature,
+                                       hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
-                                       num_node_features=num_node_feature,
+                                       num_node_features=output_size,
+                                       hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
 
     def forward(self,
@@ -143,17 +509,19 @@ class PhiNN(nn.Module):
 # 'nodes' will be a num_agent_nodes x num_features matrix 
 class PsiNN(nn.Module):
 
-    def __init__(self, num_node_feature, num_edge_feature):
+    def __init__(self, num_node_feature, output_size, num_edge_feature):
         super(PsiNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_TIME_ACTION_AGENT]
         self.node_types = [node_type for node_type in NodeType]
         self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=num_node_feature,
+                                       hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
-                                       num_node_features=num_node_feature,
+                                       num_node_features=output_size,
+                                       hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
 
 
@@ -185,11 +553,11 @@ class HeteroAttentionLayer(nn.Module):
     def __init__(self, 
                  node_types : List[NodeType], 
                  edge_types : List[EdgeType], 
-                 num_node_features : Dict[NodeType, int], 
-                 num_edge_feature : Dict[EdgeType, int], 
-                 hidden_dim = 1024, 
-                 num_heads = 16, 
-                 head_dim = 64):
+                 num_node_features : int, 
+                 num_edge_feature : int, 
+                 hidden_dim = 64, 
+                 num_heads = 4, 
+                 head_dim = 16):
         super(HeteroAttentionLayer, self).__init__()
 
         # network configurations 
@@ -198,33 +566,33 @@ class HeteroAttentionLayer(nn.Module):
         self.edge_types = edge_types
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
-        self.head_dim = head_dim
+        self.head_dim = torch.tensor(head_dim)
 
         # functions declarations 
-        self.softmax = torch.nn.Softmax
+        self.softmax = torch.nn.Softmax(dim=-1)
 
         self.W1 = nn.ModuleDict({
-            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim)
             for node_type in node_types 
         })
 
         self.W2 = nn.ModuleDict({
-            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim)
             for node_type in node_types
         })
 
         self.W3 = nn.ModuleDict({
-            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim)
             for node_type in node_types
         })
 
         self.W4 = nn.ModuleDict({
-            node_type : nn.Linear(num_node_features[node_type], hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim)
             for node_type in node_types
         })
 
         self.W5 = nn.ModuleDict({
-            edge_type : nn.Linear(num_edge_feature[edge_type], hidden_dim)
+            edge_type.name : nn.Linear(num_edge_feature, hidden_dim)
             for edge_type in edge_types
         })
     # now need to reshape the matrixes into [self.num_heads, self.head_dim]
@@ -244,15 +612,14 @@ class HeteroAttentionLayer(nn.Module):
         w4f = dict()
         w5f = dict()
 
-        for node_type, node_feature_matrix in X:
-            w1f[node_type] = self.W1[node_type](node_feature_matrix)
-            w2f[node_type] = self.W2[node_type](node_feature_matrix)
-            w3f[node_type] = self.W3[node_type](node_feature_matrix)
-            w4f[node_type] = self.W4[node_type](node_feature_matrix)
+        for node_type, node_feature_matrix in X.items():
+            w1f[node_type] = self.W1[node_type.name](node_feature_matrix)
+            w2f[node_type] = self.W2[node_type.name](node_feature_matrix)
+            w3f[node_type] = self.W3[node_type.name](node_feature_matrix)
+            w4f[node_type] = self.W4[node_type.name](node_feature_matrix)
 
-        for edge_type, edge_feature_matrix in E:
-            w5f[edge_type] = self.W5[edge_type](edge_feature_matrix)
-
+        for edge_type, edge_feature_matrix in E.items():
+            w5f[edge_type] = self.W5[edge_type.name](edge_feature_matrix)
         # now to combine them 
 
         # first add w1f 
@@ -261,13 +628,13 @@ class HeteroAttentionLayer(nn.Module):
     
         # then iterate thru neighbours with adj matrix to get attention score and neigh(i) agg for nodes and edges
         # from adj matrix, we know which node and edge to select 
-        for node_type, node_feature_matrix in w1f:
-            for i in range(node_feature_matrix.size[0]):
+        for node_type, node_feature_matrix in w1f.items():
+            for i in range(node_feature_matrix.shape[0]):
                 curr_node_index = self._find_index(node_index_dict,i) # used to find nodes in node dictionary
 
                 target_node_indexes = []
                 summation = torch.zeros_like(final_X[curr_node_index[0]][curr_node_index[1]])
-                for j in range(node_feature_matrix.size[0]):
+                for j in range(node_feature_matrix.shape[0]):
                     if A[i,j] != 0:
                         target_node_index = self._find_index(node_index_dict, j)
                         target_edge_index = self._find_index(edge_index_dict, (i,j))
@@ -285,8 +652,9 @@ class HeteroAttentionLayer(nn.Module):
                 final_X[curr_node_index[0]][curr_node_index[1]] += summation                
 
         return final_X
+    
     def _find_index(self, index_dict, index):
-        for _type, indexes in index_dict:
+        for _type, indexes in index_dict.items():
             if index in indexes:
                 target_index = indexes.index(index)
                 return (_type, target_index)

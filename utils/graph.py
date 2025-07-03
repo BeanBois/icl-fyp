@@ -4,34 +4,44 @@ from enum import Enum
 from typing import List
 import copy
 import math
-from ..tasks.twoD.game import Action, PlayerState
 
-class AgentState(Enum):
-    NOT_EATING = 0
-    EATING = 1
+# from ..tasks.twoD.game import Action, PlayerState # use when running this file
+from tasks.twoD.game import Action, PlayerState # use when running from rwd
+
+
+# Many fixes in the graph representation:
+# 1) node features is separate from Pt. we should use Pt to get node-features.
+# 2) embeddings for temporal edges dont make sense use nn.Embeddings.
+# 3) change Action graph s.t it is able to account for multiple prediction steps 
+# 4) think about dimension of node embeddings and edge embeddings 
+    # we set node embeddings to 4 and edge embedddings to 4 for now
+
+
 
 
 class NodeType(Enum):
-    AGENT = 1
-    EDIBLE = 2
-    OBSTACLE = 3
-    GOAL = 4
+    AGENT = b'000'
+    EDIBLE = b'001'
+    OBSTACLE = b'010'
+    GOAL = b'100'
 
 # 1 hot encoding
 class EdgeType(Enum):
     # For Local Graphs
-    AGENT_TO_AGENT = b'0000001'
-    AGENT_TO_OBJECT = b'0000010'
-    OBJECT_TO_OBJECT = b'0000100'
+    AGENT_TO_AGENT =            b'000001' # gripper rel gripper
+    OBJECT_TO_AGENT =           b'000010' # this should be scene rel gripper!
+    OBJECT_TO_OBJECT =          b'000100' # scene rel scene
+    AGENT_COND_AGENT =          b'001000' # gripper cond gripper this type of edge links demo grippper nodes to current gripper node, used in Context Graph
+    AGENT_DEMO_AGENT =          b'010000' # gripper demo gripper this type of edge links demo grippper nodes across timesteps in demo, used in Demo Graph
+    AGENT_TIME_ACTION_AGENT =   b'100000' # gripper timeaction grippEr this type of edge links current gripper node to predicted graphs (from current graph, with diffusion model)
 
-    # this type of edge links demo grippper nodes to current gripper node, used in Context Graph
-    AGENT_COND_AGENT = b'0001000'
-    # this type of edge links demo grippper nodes across timesteps in demo, used in Demo Graph
-    AGENT_DEMO_AGENT = b'0010000'
-    # this type of edge links current gripper node to predicted graphs (from current graph, with diffusion model)
-    AGENT_TIME_ACTION_AGENT = b'0100000'
     # this type of edge links demo gripper node to predicted graphs (from current graph, with diffusion model)
-    AGENT_DEMOACTION_AGENT = b'1000000'
+    # OBJECT_RELDEMO_AGENT =    b'000000100000' # unused for now
+    # OBJECT_RELDEMO_OBJECT =   b'000001000000' # unused for now
+    # AGENT_DEMOACTION_AGENT =  b'000100000000' # unused for now
+    # OBJECT_RELDEMO_AGENT =    b'001000000000' # unused for now
+    # OBJECT_RELDEMO_OBJECT =   b'010000000000' # unused for now
+    # AGENT_RELCOND_AGENT =     b'100000000000' # unused for now
 
 
 def SinCosEdgeEmbedding(source, dest, D = 3):
@@ -48,30 +58,36 @@ def SinCosEdgeEmbedding(source, dest, D = 3):
 
 class Edge:
 
-    def __init__(self,source, dest, edge_type,  embedding_fucntion = SinCosEdgeEmbedding, weight = 1):
+    def __init__(self, source, dest, edge_type,  
+                #  embedding_fucntion = SinCosEdgeEmbedding, 
+                 weight = 1):
         self.source = source
         self.dest = dest
         self.weight = weight 
-        self.position_feature = embedding_fucntion(source.pos, dest.pos)
+        # self.position_feature = embedding_fucntion(source.pos, dest.pos)
         self.type = edge_type
         self.rel_pos = dest.pos - source.pos 
     
-    def get_features(self):
-        return [self.weight, self.position_feature]
+    # def get_features(self):
+    #     return [self.weight, self.position_feature]
     
 
+# TODO : redo how nodes are initialised
+# instead of hard feature sets like self.pos 
+# store them in like a matrix or something node.features 
     
+# TODO : also get_edges function are all wrong sadge minor refactoring needed
 class Node:
-
-    def __init__(self,pos,t):
+    def __init__(self,pos,time):
         self.pos = pos
-        self.timestep = t
-
+        self.timestep = time
+    
     def get_pos(self):
         return self.pos
-    
-    def set_pos(self,pos):
-        self.pos = pos
+
+    def get_time(self):
+        return self.timestep
+
 
 class AgentNodeTag(Enum):
     EDGE1 = b'0001'
@@ -80,45 +96,45 @@ class AgentNodeTag(Enum):
     CENTER = b'1000'
     
 class AgentNode(Node):
-    def __init__(self,pos,t, orientation, tag):
-        super().__init__(pos,t)
+    def __init__(self, pos, time, orientation, tag):
+        super().__init__(pos,time)
         self.type = NodeType.AGENT
         self.tag = tag
         self.orientation = orientation
     
-    def get_features(self):
-        return np.array([self.pos[0], self.pos[1], self.tag, self.orientation])
+    # def get_features(self):
+    #     return np.array([self.pos[0], self.pos[1], self.eaten]) 
 
 class EdibleNode(Node):
 
-    def __init__(self, pos,t):
-        super().__init__(pos,t)
+    def __init__(self, pos,time):
+        super().__init__(pos,time)
         self.type = NodeType.EDIBLE
         self.eaten = False 
     
     def set_eaten(self):
         self.eaten = True
 
-    def get_features(self):
-        return np.array([self.pos[0], self.pos[1], self.eaten]) 
+    # def get_features(self):
+    #     return np.array([self.pos[0], self.pos[1], self.tag, self.orientation]) 
 
 class ObstacleNode(Node):
 
-    def __init__(self, pos,t):
-        super().__init__(pos,t)
+    def __init__(self, pos,time):
+        super().__init__(pos,time)
         self.type = NodeType.OBSTACLE
 
-    def get_features(self):
-        return np.array([self.pos[0], self.pos[1]]) 
+    # def get_features(self):
+    #     return np.array([self.pos[0], self.pos[1]]) 
 
 class GoalNode(Node):
 
-    def __init__(self, pos,t):
-        super().__init__(pos,t)
+    def __init__(self, pos,time):
+        super().__init__(pos,time)
         self.type = NodeType.GOAL
 
-    def get_features(self):
-        return np.array([self.pos[0], self.pos[1]]) 
+    # def get_features(self):
+    #     return np.array([self.pos[0], self.pos[1]]) 
 
 # TODO : change DST of node and edges to sets. Eg in Context Graph
 
@@ -127,85 +143,36 @@ class LocalGraph:
 
     def __init__(self, point_clouds, timestep, agent_pos, agent_orientation ,agent_state = None):
         self.num_nodes = 0
-        # maybe can remove the odx offset since we have a node_idx_dict
         self.timestep = timestep
-
         self.agent_nodes = None
         self.object_nodes = None
         self.nodes = None
         self.node_idx_dict = dict()
         self.agent_orientation = agent_orientation
+
         self._init_nodes(agent_pos, point_clouds) # initialise nodes, idx offsets and num_nodes
 
         # init agent state
         if agent_state is None:
-            self.agent_state = AgentState.EATING 
+            self.agent_state = PlayerState.EATING 
             if np.random.random() <= 0.5: 
-                self.agent_state = AgentState.NOT_EATING 
+                self.agent_state = PlayerState.NOT_EATING 
         else:
             if agent_state == 'not-eating':
-                self.agent_state = AgentState.NOT_EATING
+                self.agent_state = PlayerState.NOT_EATING
             else:
-                self.agent_state = AgentState.EATING
+                self.agent_state = PlayerState.EATING
         
         # init edges
         self.edges = None
         self._init_edges()
     
-    """
-    get_edges and get_nodes functions must be workable for Rho Network
-    so change them s.t they return a dictionary mapping 
-    edge-type : features
-    node-type : features, index 
-    """
-
-    # this needs to return edge-dict, edge-index dict and adj matrix,
     def get_edges(self):
-        # edge have attributes weight, distance-metric, edgetype
-        edges_dict = dict()
-        edge_index_dict = dict()
-
-        connection_matrix = np.zeros((self.num_nodes, self.num_nodes))
-
-        for edge in self.edges:
-            source_node_idx = self.node_idx_dict[edge.source]
-            dest_node_idx = self.node_idx_dict[edge.dest]
-            weight = edge.weight
-            distance_metric = edge.distance_feature
-            connection_matrix[source_node_idx, dest_node_idx] = 1
-            data = np.array([source_node_idx, dest_node_idx, weight, distance_metric])
-            if edge.type not in edges_dict.keys():
-                edges_dict[edge.type] = [data]
-                edges_dict[edge.type] = [(source_node_idx,dest_node_idx)]
-
-            else:
-                edges_dict[edge.type].append(data)
-                edges_dict[edge.type].append((source_node_idx,dest_node_idx))
-            
-            # make into array
-            for edge_type in edges_dict.keys():
-                edges_dict[edge_type] = np.array(edges_dict[edge_type])
-
-        return edges_dict, edge_index_dict, connection_matrix
+        return self.edges
 
     # needs to return node_dictionary and its index dicitonary
     def get_nodes(self):
-        nodes_dict = dict()
-        node_index_dict = dict()
-        for node in self.nodes:
-            features = node.get_feature()
-            index = np.array(self.node_idx_dict[node])
-            data = np.concatenate((index,features))
-            if node.type not in nodes_dict.keys():
-                nodes_dict[node.type] = [data]
-                node_index_dict[node.type] = [index]
-            else:
-                nodes_dict[node.type].append(data)
-                node_index_dict[node.type].append(index)
-
-        for node_type in NodeType:
-            nodes_dict[node_type] = np.array(nodes_dict[node_type])
-        return nodes_dict, node_index_dict
+        return self.nodes, self.node_idx_dict
     
     # aux functions
     # initialise point clouds into nodes
@@ -220,8 +187,7 @@ class LocalGraph:
             # mobius operation can be used here too! 
         # then find nearest nodes to each edge and connect them 
         # graphs then becomes sparse
-    def _init_nodes(self, agent_pos, point_clouds):
-        
+    def _init_nodes(self, agent_pos, point_clouds):    
         # init agent nodes
         AGENT_TAGS = [AgentNodeTag.EDGE1, AgentNodeTag.EDGE2, AgentNodeTag.EDGE3, AgentNodeTag.CENTER]
         # TODO update this 
@@ -251,7 +217,7 @@ class LocalGraph:
         self.num_nodes = len(agent_nodes) + len(edible_nodes)  + len(obstacle_nodes) + len(goal_nodes) 
         self.agent_nodes = np.array(agent_nodes)
         self.object_nodes = np.array(edible_nodes + obstacle_nodes + goal_nodes)
-        self.nodes = np.array(agent_nodes + edible_nodes + obstacle_nodes + goal_nodes)
+        self.nodes = np.array(agent_nodes + edible_nodes + obstacle_nodes + goal_nodes) # this implicitly implies that agent nodes index will be first
 
         # now index nodes
         for (i,node) in enumerate(self.nodes):
@@ -266,18 +232,18 @@ class LocalGraph:
     def _init_edges(self):
         edges = []
 
-        # first link all agent_nodes to object_nodes 1 direction
+        # first link all object_nodes to agent_nodes 1 direction
         for agent_node in self.agent_nodes:
             for obj_node in self.object_nodes:
-                edges.append(Edge(source = agent_node, dest = obj_node, edge_type = EdgeType.AGENT_TO_OBJECT))
+                edges.append(Edge(source = obj_node, dest = agent_node, edge_type = EdgeType.OBJECT_TO_AGENT))
 
         # then link inter agent nodes (i dont thinke we interlink agent nodes)
-        # for i in range(len(self.agent_nodes)):
-        #     for j in range(len(self.agent_nodes)):
-        #         if i != j:
-        #             edges.append(
-        #                 Edge(source = self.agent_nodes[i], dest = self.agent_nodes[j], edge_type = EdgeType.AGENT_TO_AGENT)
-        #               )
+        for i in range(len(self.agent_nodes)):
+            for j in range(len(self.agent_nodes)):
+                if i != j:
+                    edges.append(
+                        Edge(source = self.agent_nodes[i], dest = self.agent_nodes[j], edge_type = EdgeType.AGENT_TO_AGENT)
+                      )
 
         # then link inter object node
         for i in range(len(self.object_nodes)):
@@ -353,7 +319,6 @@ class DemoGraph:
         self._init_nodes(graph_frames)
         self.graphs = graph_frames
         self.L = len(graph_frames)
-        self.N = len(graph_frames[0])
         # self.temporal_edges = np.zeros((L,N,N)) # should we utilise a temporal edge?
         self.temporal_edges = None 
         # self.edge_idx_dict = dict()
@@ -367,10 +332,10 @@ class DemoGraph:
         return self.temporal_edges #, self.edge_idx_dict
     
     def _init_nodes(self, graph_frames):
-        self.temporal_nodes = set()
+        self.temporal_nodes = []
         for graph in graph_frames:
             for agent_node in graph.agent_nodes:
-                self.temporal_nodes.add(agent_node)
+                self.temporal_nodes.append(agent_node)
                 self.num_nodes += 1
 
         # for (i,node) in enumerate(self.temporal_nodes):
@@ -387,7 +352,7 @@ class DemoGraph:
             next_graph = self.graphs[i+1]
 
             # now link gripper nodes of both graphs
-            self._link_graph_frame(curr_graph, next_graph)
+            self._link_graph_frames(curr_graph, next_graph)
 
     def _link_graph_frames(self, curr_graph, next_graph):
         curr_graph_agent_nodes = curr_graph.agent_nodes
@@ -397,7 +362,7 @@ class DemoGraph:
             for next_node in next_graph_agent_nodes:
                 if curr_node.tag == next_node.tag:
                     edge = Edge(source = curr_node, dest = next_node, edge_type=EdgeType.AGENT_DEMO_AGENT)
-                    # self.edge_idx_dict[edge] = (self.node_idx_dict[curr_node], [next_node])
+                    # self.edge_idx_dict[edge] = (self.node_idx_dict[curr_node], self.node_idx_dict[next_node])
                     self.temporal_edges.add(edge)
                     
 
@@ -408,107 +373,66 @@ class ContextGraph:
     def __init__(self, current_graph : LocalGraph, demo_graphs : List[DemoGraph]):
         self.current_graph = current_graph
         self.demo_graphs = demo_graphs
-        self.temporal_nodes = None
+        self.temporal_nodes = []
         self.node_idx_dict = dict()
         self._init_nodes()
         
-        self.temporal_edges = None
-        self.edge_idx_dict = dict()
+
+        # self.edge_idx_dict = dict()
+        self.temporal_edges = set()
         self._account_for_demographs_edges()
         self._connect_demo_graphs_to_curr_graph()
-
+     
     def get_temporal_nodes(self):
-        nodes_dict = dict()
-        node_index_dict = dict()
-        for node in self.temporal_nodes:
-            features = node.get_feature()
-            index = np.array(self.node_idx_dict[node])
-            data = np.concatenate((index,features))
-            if node.type not in nodes_dict.keys():
-                nodes_dict[node.type] = [data]
-                node_index_dict[node.type] = [index]
-            else:
-                nodes_dict[node.type].append(data)
-                node_index_dict[node.type].append(index)
-
-        for node_type in NodeType:
-            nodes_dict[node_type] = np.array(nodes_dict[node_type])
-        return nodes_dict, node_index_dict
+        return self.temporal_nodes, self.node_idx_dict
 
     def get_temporal_edges(self):
-        edges_dict = dict()
-        edge_index_dict = dict()
-        connection_matrix = np.zeros((self.num_nodes, self.num_nodes))
-        for edge in self.temporal_edges:
-            source_node_idx = self.node_idx_dict[edge.source]
-            dest_node_idx = self.node_idx_dict[edge.dest]
-            weight = edge.weight
-            distance_metric = edge.distance_feature
-            connection_matrix[source_node_idx, dest_node_idx] = 1
-            data = np.array([source_node_idx, dest_node_idx, weight, distance_metric])
-            if edge.type not in edges_dict.keys():
-                edges_dict[edge.type] = [data]
-                edges_dict[edge.type] = [(source_node_idx,dest_node_idx)]
-
-            else:
-                edges_dict[edge.type].append(data)
-                edges_dict[edge.type].append((source_node_idx,dest_node_idx))
-            
-            # make into array
-            for edge_type in edges_dict.keys():
-                edges_dict[edge_type] = np.array(edges_dict[edge_type])
-
-        return edges_dict, edge_index_dict, connection_matrix
+        return self.temporal_edges
 
     def _init_nodes(self):
-        self.temporal_nodes = set()
         for agent_node in self.current_graph.agent_nodes:  
-            self.temporal_node.add(agent_node)  
-
-        for demo_graph in range(len(self.demo_graphs)):
-            for demo_graph in demo_graph.graphs:
-                demo_graph_nodes = demo_graph.get_temporal_nodes()
-                for agent_node in demo_graph_nodes:
-                    self.temporal_node.add(agent_node)  
+            self.temporal_nodes.append(agent_node)  
+        for demo_graph in self.demo_graphs:
+            demo_graph_nodes = demo_graph.get_temporal_nodes()
+            for agent_node in demo_graph_nodes:
+                self.temporal_nodes.append(agent_node)  
         for (i, node) in enumerate(self.temporal_nodes):
             self.node_idx_dict[node] = i
 
     # change it s.t temporal edges of demo graph and their indexing is accounted for
     def _connect_demo_graphs_to_curr_graph(self):
-        self.temporal_edges = set()
-        for demo_graph in range(len(self.demo_graphs)):
-            for demo_graph in demo_graph.graphs:
-                self._link_demo_graph_to_current(demo_graph)
+        for demo_graph in self.demo_graphs:
+            self._link_demo_graph_to_current(demo_graph)
     
-    def _link_graph_frames(self, demo_graph):
+    def _link_demo_graph_to_current(self, demo_graph):
         curr_graph_agent_nodes = self.current_graph.agent_nodes
-        demo_graph_agent_nodes = demo_graph.get_temporal_nodes
+        demo_graph_agent_nodes = demo_graph.get_temporal_nodes()
 
         for demo_node in demo_graph_agent_nodes:
             for curr_node in curr_graph_agent_nodes:    
                 if curr_node.tag == demo_node.tag:
                     edge = Edge(source = demo_node, dest = curr_node, edge_type=EdgeType.AGENT_COND_AGENT)
                     self.temporal_edges.add(edge)
-                    self.edge_idx_dict[edge] = (self.node_idx_dict[demo_node], self.node_idx_dict[curr_node])
+                    # self.edge_idx_dict[edge] = (self.node_idx_dict[demo_node], self.node_idx_dict[curr_node])
 
     def _account_for_demographs_edges(self):
         for demo_graph in self.demo_graphs:
             temporal_edges = demo_graph.get_temporal_edges()
             for edge in temporal_edges:
-                self.temporal_edges.append(edge)
-                self.edge_idx_dict[edge] = (self.node_idx_dict[edge.source], self.node_idx_dict[edge.dest])
+                self.temporal_edges.add(edge)
+                # self.edge_idx_dict[edge] = (self.node_idx_dict[edge.source], self.node_idx_dict[edge.dest])
     
 
-
-
-
 # TODO : refactor action here 
+# can just take curr graph instead of Context Graph
+#  we change this to take curr graph now
 class ActionGraph:
 
-    def __init__(self, context_graph : ContextGraph, action : Action):
-        self.context_graph = context_graph
+    def __init__(self, curr_graph : LocalGraph, action : Action):
+        self.curr_graph = curr_graph
 
-        self.moving_action = action.movement_as_matrix()
+        self.action = action
+        self.moving_action = action.movement_as_vector()
         self.change_state_action = action.state_change
 
         # make predicted graph
@@ -522,81 +446,43 @@ class ActionGraph:
         self.num_nodes = len(self.action_nodes)
 
         self.action_edges = set() 
-        self.edge_idx_dict = dict()
         self._connect_curr_graph_to_predicted_graph()
 
         # self._connect_demo_to_predicted_graph() # i dont think we connect demo node to future predicted action
         pass
 
     def get_action_nodes(self):
-        nodes_dict = dict()
-        node_index_dict = dict()
-        for node in self.action_nodes:
-            features = node.get_feature()
-            index = np.array(self.node_idx_dict[node])
-            data = np.concatenate((index,features))
-            if node.type not in nodes_dict.keys():
-                nodes_dict[node.type] = [data]
-                node_index_dict[node.type] = [index]
-            else:
-                nodes_dict[node.type].append(data)
-                node_index_dict[node.type].append(index)
-
-        for node_type in NodeType:
-            nodes_dict[node_type] = np.array(nodes_dict[node_type])
-        return nodes_dict, node_index_dict
+        return self.action_nodes, self.node_idx_dict
 
     def get_action_edges(self):
-        edges_dict = dict()
-        edge_index_dict = dict()
-        connection_matrix = np.zeros((self.num_nodes, self.num_nodes))
-        for edge in self.action_edges:
-            source_node_idx = self.node_idx_dict[edge.source]
-            dest_node_idx = self.node_idx_dict[edge.dest]
-            weight = edge.weight
-            distance_metric = edge.distance_feature
-            connection_matrix[source_node_idx, dest_node_idx] = 1
-            data = np.array([source_node_idx, dest_node_idx, weight, distance_metric])
-            if edge.type not in edges_dict.keys():
-                edges_dict[edge.type] = [data]
-                edges_dict[edge.type] = [(source_node_idx,dest_node_idx)]
-
-            else:
-                edges_dict[edge.type].append(data)
-                edges_dict[edge.type].append((source_node_idx,dest_node_idx))
-            
-            # make into array
-            for edge_type in edges_dict.keys():
-                edges_dict[edge_type] = np.array(edges_dict[edge_type])
-
-        return edges_dict, edge_index_dict, connection_matrix
+        return self.action_edges
 
 
     def _init_nodes(self):
-        self.action_nodes = set()
-        for node in self.context_graph.current_graph.agent_nodes:
-            self.action_nodes.add(node)
+        self.action_nodes = []
+        for node in self.curr_graph.agent_nodes:
+            self.action_nodes.append(node)
         for node in self.predicted_graph.agent_nodes:
-            self.action_nodes.add(node)
+            self.action_nodes.append(node)
         for (i, node) in enumerate(self.action_nodes):
             self.node_idx_dict[node] = i
     
 
+    # not used for now
+    # def _connect_demo_to_predicted_graph(self):
+    #     for demo in self.curr_graph.demo_graphs:
+    #         for demo_graph in demo:
+    #             predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
+    #             demo_graph_agent_nodes = demo_graph.agent_nodes
 
-    def _connect_demo_to_predicted_graph(self):
-        for demo in self.context_graph.demo_graphs:
-            for demo_graph in demo:
-                predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
-                demo_graph_agent_nodes = demo_graph.agent_nodes
-
-                for demo_node in demo_graph_agent_nodes:
-                    for pred_node in predicted_graph_agent_nodes:
-                        if pred_node.tag == demo_node.tag:
-                            self.action_edges.add(Edge(source = demo_node, dest = pred_node, edge_type=EdgeType.AGENT_DEMOACTION_AGENT))
+    #             for demo_node in demo_graph_agent_nodes:
+    #                 for pred_node in predicted_graph_agent_nodes:
+    #                     if pred_node.tag == demo_node.tag:
+    #                         self.action_edges.add(Edge(source = demo_node, dest = pred_node, edge_type=EdgeType.AGENT_DEMOACTION_AGENT))
 
 
     def _connect_curr_graph_to_predicted_graph(self):
-        curr_graph_agent_nodes = self.context_graph.current_graph.agent_nodes
+        curr_graph_agent_nodes = self.curr_graph.agent_nodes
         predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
 
         for curr_node in curr_graph_agent_nodes:
@@ -604,14 +490,14 @@ class ActionGraph:
                 if pred_node.tag == curr_node.tag:
                     edge = Edge(source = curr_node, dest = pred_node, edge_type=EdgeType.AGENT_TIME_ACTION_AGENT)
                     self.action_edges.add(edge)
-                    self.edge_idx_dict[edge] = (self.node_idx_dict[curr_node], self.node_idx_dict[pred_node])
+                    # self.edge_idx_dict[edge] = (self.node_idx_dict[curr_node], self.node_idx_dict[pred_node])
 
 
 
     def _apply_action_to_curr_graph(self):
 
         # first we duplicate the current local graph 
-        predicted_graph = copy.deepcopy(self.context_graph.curr_graph)
+        predicted_graph = copy.deepcopy(self.curr_graph)
 
         # check if action changes state of agent
         # if self.change_state_action
@@ -628,7 +514,7 @@ class ActionGraph:
         # then depending on the state of the agent, we update the state of edible node with set_eaten()
         # this too is a collision check
         # check only done if agent is in eating state
-        if predicted_graph.agent_state == AgentState.EATING:
+        if predicted_graph.agent_state == PlayerState.EATING:
             for predicted_agent_node in predicted_agent_nodes:
                 for obj_node, i in enumerate(predicted_graph.object_nodes):
                     if type(obj_node) == EdibleNode:
@@ -636,17 +522,17 @@ class ActionGraph:
                         if collided:
                             predicted_graph.object_nodes[i].set_eaten()
 
+        # dont care about collisions for now
         # with updated agent_nodes, we need to see if the updated nodes collides with any obstacles. 
         # if such is the case, we need to update all the predicted nodes s.t its 'shape' does not change
-        collisions = []
-        for predicted_agent_node in predicted_agent_nodes:
-            for obj_node in predicted_graph.object_nodes:
-                if type(obj_node) == ObstacleNode:
-                    collided, collision_angle = self._check_collision(predicted_agent_nodes, obj_node)
-                    if collided:
-                        collisions.append((collision_angle))
+        # collisions = []
+        # for predicted_agent_node in predicted_agent_nodes:
+        #     for obj_node in predicted_graph.object_nodes:
+        #         if type(obj_node) == ObstacleNode:
+        #             collided, collision_angle = self._check_collision(predicted_agent_nodes, obj_node)
+        #             if collided:
+        #                 collisions.append((collision_angle))
             
-        # dont care about collisions for now
         # if len(collisions) > 0:
             # predicted_agent_nodes = self._update_node_pos_based_on_collisions(predicted_agent_nodes,collisions) # this fucntion is hard to implement bffr
         
@@ -654,19 +540,16 @@ class ActionGraph:
         self.predicted_graph = predicted_graph
 
         if self.change_state_action == PlayerState.EATING:
-            self.predicted_graph.agent_state = AgentState.EATING
+            self.predicted_graph.agent_state = PlayerState.EATING
         elif self.change_state_action == PlayerState.NOT_EATING:
-            self.predicted_graph.agent_state = AgentState.NOT_EATING
+            self.predicted_graph.agent_state = PlayerState.NOT_EATING
 
 
-    # this function is most definitely wrong HAHAHAHA
-    # fix this
     def _apply_action_to_agent_node(self, agent_node):
         # complete this funciton 
-        # action consist of a rotation and scalar translation
-        # we assume self.moving_action to be A = R @ T (T is forward direction [1,0], R is 2x2 matrix)
         agent_node.pos = agent_node.pos + self.moving_action
-
+        agent_node.orientation += self.action.rotation
+        agent_node.orientation = (agent_node.orientation % 360)
         return agent_node
 
     def _check_collision(self, moving_node, static_node, collision_delta = 5):

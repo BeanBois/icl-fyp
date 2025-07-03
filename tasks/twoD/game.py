@@ -1,3 +1,4 @@
+import os
 import math
 import random
 from collections import defaultdict
@@ -36,22 +37,25 @@ class PlayerState(Enum):
 
 # we will refactor this when everything is done
 class Action:
-    def __init__(self, forward_movement, orientation, state_change):
+    def __init__(self, forward_movement, rotation, state_change):
         self.forward_movement = forward_movement
-        self.orientation = orientation
+        self.rotation = rotation
         self.state_change = state_change
     
     # returns movement as a matrix
-    def movement_as_matrix(self):
+    def movement_as_vector(self):
         # If you want the movement to be relative to the player's current orientation,
         # use the rotation to determine direction
-        orientation = np.deg2rad(self.orientation)
+        orientation = np.deg2rad(self.rotation)
         
         # Create movement vector in the direction of rotation
         # Since rotation 0 should point right (positive x), we use cos/sin directly
         movement_vector = self.forward_movement * np.array([np.cos(orientation), np.sin(orientation)])
         
         return movement_vector
+
+    def movement_as_label(self):
+        return [np.cos(self.rotation) * self.forward_movement, np.sin(self.rotation) * self.forward_movement, self.rotation, self.state_change.value]
     
 
 class Player:
@@ -112,14 +116,14 @@ class Player:
         # we need to update self.x, self.y and self.angle respectively
         
         state_change_action = action.state_change
-        angle = action.orientation
+        angle = action.rotation
         # Update the object's angle (add the rotation to current angle)
         self.angle = angle
         
         # Optional: Keep angle in [0, 360) range
         self.angle = self.angle % 360
         # action.rotation = self.angle # have to hard reset. need to change st actions now represent absolute final position 
-        moving_action = action.movement_as_matrix()
+        moving_action = action.movement_as_vector()
 
         # Update position
         self.x += moving_action[0]
@@ -416,7 +420,6 @@ class Game:
     
     def end_game(self):
         pygame.quit()
-        sys.exit()
 
     # RUNS THE WHOLE GAME 
     def run(self):
@@ -428,7 +431,7 @@ class Game:
             self.clock.tick(60)
         
         pygame.quit()
-        sys.exit()
+
 
     def get_screen_pixels(self):
         pixels = [
@@ -568,7 +571,6 @@ class GameInterface:
             return obs 
         else:
             pygame.quit()
-            sys.exit()
     
     def _get_agent_pos(self):
         player_pos = self.game.player.get_pos()
@@ -629,7 +631,7 @@ class GameInterface:
 # It should play out by itself 
 # for pseudo demonstrations we will only concern ourselves with 1 object 
 
-class PseudoGameMode:
+class PseudoGameMode(Enum):
     EAT_EDIBLE = 1
     AVOID_OBSTACLE = 2
     REACH_GOAL = 3
@@ -643,6 +645,7 @@ class PseudoGame:
     def __init__(self, max_num_sampled_waypoints = 6, min_num_sampled_waypoints = 2, mode = PseudoGameMode.RANDOM, biased = True, 
                  augmented = False, screen_width = 400, screen_height = 300, num_sampled_point_clouds = 20):
         
+        os.environ['SDL_VIDEODRIVER'] = 'dummy' # running headless
         # setup configs for pseudo game
         self.mode = mode 
         self.num_sampled_point_clouds = num_sampled_point_clouds
@@ -666,7 +669,7 @@ class PseudoGame:
         self.augmented = augmented
         self.waypoints = []
         self.observations = []
-        self.final_action = None
+        self.actions = []
         self._sample_waypoints()
 
 
@@ -681,14 +684,19 @@ class PseudoGame:
             self.go_to_next_waypoint()
             self.update()
             self.draw()
-            self.clock.tick(60)
             obs = self.get_obs()
+            self.clock.tick(60)
             self.observations.append(obs)
         self.update()
         self.draw()
         self.clock.tick(60)
         self._end_game()
+    
 
+
+
+    def get_actions(self):
+        return self.actions
 
     def get_obs(self):
         agent_pos = self._get_agent_pos()
@@ -709,6 +717,7 @@ class PseudoGame:
         # To simulate FPSA, we randomly select an initial point from coords ranging from p in (SCREEN_WIDTH X SCREEN_HEIGHT)  
         selected_indices = []
         initial_coord = random.randint(0, len(coords) - 1)
+
         selected_indices.append(initial_coord)
 
         # then perform FPSA to collect M points
@@ -773,7 +782,7 @@ class PseudoGame:
             'agent-state' : agent_state,
             'agent-orientation' : self.player.angle,
             # 'done': self.running,
-            # 'time' : self.t
+            'time' : self.t
         }
 
 
@@ -799,10 +808,9 @@ class PseudoGame:
             
             # then find distance
             distance = np.linalg.norm(dydx)
-        print(f"trans : {distance}, rot : {final_angle_deg}")
-        action = Action(forward_movement=distance, orientation=final_angle_deg, state_change=state_change) 
-        if self.t == self.num_waypoints_used:
-            self.final_action = action
+
+        action = Action(forward_movement=distance, rotation=final_angle_deg, state_change=state_change) 
+        self.actions.append(action.movement_as_label()) # take in actions as se2
         self.player.move_with_action(action)
 
 
@@ -817,9 +825,9 @@ class PseudoGame:
         
         self.player.draw(self.screen)
         self.object.draw(self.screen)
-        for waypoint in self.waypoints:
-            center = waypoint['movement']
-            pygame.draw.circle(self.screen, (125, 125, 125), center, 5)
+        # for waypoint in self.waypoints:
+        #     center = waypoint['movement']
+        #     pygame.draw.circle(self.screen, (125, 125, 125), center, 5)
         pygame.display.flip()
 
     def _get_agent_pos(self):
@@ -1005,20 +1013,24 @@ class PseudoGame:
                         waypoints.append(waypoint)
 
         # now we got waypoints, we need to assign 1 or more waypoints that get chosen to alter state
-        processed_waypoints = [{'movement' : waypoint, 
-                                'state-change' : None} 
-                                for waypoint in waypoints]
+        processed_waypoints = []
+        
+
         num_state_changing_waypoints = np.random.randint(1,self.num_waypoints_used)
         chosen_index = np.random.choice(self.num_waypoints_used, replace = False, size = num_state_changing_waypoints)
-        state_change_to = PlayerState.EATING
-
-        # now choose 1 or more to alternate states
-        for index in chosen_index:
-            processed_waypoints[index]['state-change'] = state_change_to
-            if state_change_to is PlayerState.EATING:
-                state_change_to = PlayerState.NOT_EATING
-            else:
-                state_change_to = PlayerState.EATING
+        state_change_to = PlayerState.NOT_EATING
+        for index in range(len(waypoints)):
+            if index in chosen_index:
+                if state_change_to is PlayerState.EATING:
+                    state_change_to = PlayerState.NOT_EATING
+                else:
+                    state_change_to = PlayerState.EATING
+            data = {
+                    'movement' : waypoints[index], 
+                    'state-change' : state_change_to
+                    } 
+            processed_waypoints.append(data)
+            
 
 
         # for now we dont augment
@@ -1049,7 +1061,6 @@ class PseudoGame:
     
     def _end_game(self):
         pygame.quit()
-        sys.exit()
     
 
 
