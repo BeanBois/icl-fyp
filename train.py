@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import random
-
+import matplotlib.pyplot as plt
 
 
 # Generates a single X for training. 
@@ -195,7 +195,9 @@ class Trainer:
         
         return total_loss / num_steps_per_epoch
     
-    def full_training(self, num_steps_per_epoch=100, num_epochs=20):
+    def full_training(self, num_steps_per_epoch=100, num_epochs=20, 
+                      save_model = True):
+        avg_losses = []
         for epoch in range(num_epochs):
             avg_loss = self.train_epoch(num_steps_per_epoch)
             print(f"Epoch {epoch}, Average Loss: {avg_loss:.6f}")
@@ -203,6 +205,18 @@ class Trainer:
             if epoch > num_epochs - 4:
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] *= 0.99
+            avg_losses.append(avg_loss)
+        self.plot_losses(avg_losses,num_steps_per_epoch)
+        if save_model:
+            torch.save(self.agent, 'instant_policy.pth')
+
+
+    def plot_losses(self, losses,num_steps_per_epoch):
+        plt.figure()
+        plt.plot(losses)
+        plt.title(f'avegrage losses from each epoch ({num_steps_per_epoch} steps)')
+        plt.show()
+
             
 
 
