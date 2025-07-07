@@ -32,8 +32,8 @@ NUM_OF_OBSTACLES = 1
 NUM_OF_GOALS = 1
 
 class PlayerState(Enum):
-    NOT_EATING = 1
-    EATING = 2
+    NOT_EATING = 0
+    EATING = 1
 
 # we will refactor this when everything is done
 class Action:
@@ -142,6 +142,25 @@ class Player:
             'bot-left' : (self.x - self.size, self.y + self.size),
             'center' : (self.x, self.y),
             'orientation' : self.angle
+        }
+
+    # illustration of keypoints:
+    #  * (back-left)
+    #  |  \ 
+    #  |   \
+    #  |    \
+    #  |  *  * (front)
+    #  |    /
+    #  |   /
+    #  |  /
+    #  * (back-right)
+    def get_keypoints(self):
+
+        return {
+            'center' : (self.x, self.y),
+            'front' : (self.x + self.size, self.y),
+            'back-left' : (self.x - self.size, self.y - self.size),
+            'back-right' : (self.x + self.size, self.y - self.size),
         }
 
     def draw(self, screen):
@@ -451,6 +470,10 @@ class GameMode(Enum):
 class GameInterface:
 
     def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10, mode = GameMode.DEMO_MODE):
+        # dont run headless
+        if 'SDL_VIDEODRIVER' in os.environ:
+            del os.environ['SDL_VIDEODRIVER']
+
         self.game = Game(num_edibles=num_edibles, num_obstacles=num_obstacles)
         self.running = True
         self.t = 0
@@ -553,6 +576,7 @@ class GameInterface:
             'agent-pos' : agent_pos,
             'agent-orientation' : self.game.player.angle,
             'agent-state' : agent_state,
+            'agent-keypoints' : self.player.get_keypoints(),
             'done': self.running,
             'time' : self.t
         }
@@ -664,6 +688,7 @@ class PseudoGame:
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         self.clock = pygame.time.Clock()
         self.player = Player(100, 100)
+
         self.t = 0
         self.object = None
 
@@ -699,7 +724,8 @@ class PseudoGame:
         self.clock.tick(60)
         self._end_game()
     
-
+    def get_player_keypoints(self):
+        return self.player.get_keypoints()
 
 
     def get_actions(self):

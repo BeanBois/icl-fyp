@@ -30,29 +30,33 @@ class PseudoDemoGenerator:
         self.num_demos = num_demos
         self.min_demo_length = min_demo_length
         self.max_demo_length = max_demo_length
-
         self.num_sampled_pc = num_sampled_pointclouds
         self.device = device
         self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
         self.alpha_schedule = 1-self.beta_schedule
         self.alpha_cumprod = torch.cumprod(self.alpha_schedule, dim=0)
-        self.translation_scale = 100
+
+        self.translation_scale = 500
         self.max_translation = 100  # 100 pixels
         self.max_rotation = np.pi / 9  # 20 degrees
 
+
+
     def get_sample(self, mode):
         context = self._get_context(mode)
-        curr_obs, label = self._get_ground_truth(mode)
-        label = torch.tensor(label, device = self.device)
+        # dont actaully need label HAHAHAH
+        curr_obs, clean_actions = self._get_ground_truth(mode)
+        clean_actions = torch.tensor(clean_actions, device = self.device)
 
         data = {}
-        batch_size = len(label)
+        batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, noises = self._get_noisy_actions(label, timesteps)
+        noisy_actions, noises = self._get_noisy_actions(clean_actions, timesteps)
         data['current_observation']  = curr_obs
         data['noisy_actions'] = noisy_actions  
         data['noises'] = noises  
-        return data, context, label 
+        # change this later so that clean acitons is not returned and noise is instead
+        return data, context, clean_actions 
 
     def _run_game(self, mode):
         max_retries = 5
@@ -116,7 +120,6 @@ class PseudoDemoGenerator:
         # alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
         
         noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalized + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
-        # noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt(1 - alpha_cumprod_t[..., 0]) * binary_noise
         noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
         
         # Convert back to SE(2) for graph construction
@@ -172,11 +175,13 @@ class Trainer:
                 num_sampled_pointclouds=num_sampled_pointclouds,
                 device=self.device
                 )
+        self.alpha_schedule = self.data_generator.alpha_schedule
         self.num_diffusion_steps = num_diffusion_steps
   
         self.modes = [mode for mode in PseudoGameMode if mode != PseudoGameMode.RANDOM]
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
         self.optimizer = optim.AdamW(agent.parameters(), lr=1e-5)
+
         
 
     def train_step(self):
@@ -191,8 +196,10 @@ class Trainer:
             context,
             noisy_actions
         )
+
+
         # then MSE lost for 
-        loss = nn.MSELoss()(predictions, label)
+        loss = nn.MSELoss()(predictions, noise)
         # loss = nn.MSELoss()(predictions, noise)
 
         # backpropagation
@@ -229,6 +236,7 @@ class Trainer:
         self.plot_losses(avg_losses,num_steps_per_epoch)
         if save_model:
             torch.save(self.agent, save_path)
+            torch.save(self.alpha_schedule, f'{save_path[:5]}-alpha_schedule.pth')
 
 
     def plot_losses(self, losses,num_steps_per_epoch):

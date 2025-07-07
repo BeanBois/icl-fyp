@@ -156,6 +156,12 @@ class InstantPolicy(nn.Module):
         self.phi = PhiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
         self.psi = PsiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
 
+        self.chi = None 
+        # an additional layer that processes the agent nodes after psi. main point is to agg with attention mechanism on how centre of mass should be adjusted
+        # with the given features from the predicted graph 
+        # topology of this graph will be customised for the object 
+        # 
+
         self.pred_head = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim),
             nn.GELU(),
@@ -248,6 +254,7 @@ class InstantPolicy(nn.Module):
                 curr_obs, # 1 
                 provided_demos, # list of demos, whereby each demo contains a list of observation,
                 actions, # list of actions?
+                # agent_keypoints, # dict of keypoints str : vector
                 ):
         curr_graph_agent_node_embeddings_dict = dict()
         # # σ(Gt_l)
@@ -406,16 +413,20 @@ class InstantPolicy(nn.Module):
             psi = self.psi(action_node_embd, action_node_idx_dict_by_type, action_connection_matrix, action_graph_edge_features, action_graph_edge_index_dict)
 
 
-            agent_nodes = psi[NodeType.AGENT]
-            agent_translation = self.pred_head(agent_nodes).mean()
-            agent_rotation = self.pred_head_rot(agent_nodes).mean()
-            agent_state_change = self.pred_head_g(agent_nodes).mean()
+
+            # simplify this since agent nodes need not move by same amount!
+            # for now we just use center node, which is the last node
+            # agent_nodes = psi[NodeType.AGENT][4:, ...]
+            agent_nodes = psi[NodeType.AGENT][-1, ...]
+            agent_translation = self.pred_head(agent_nodes)
+            agent_rotation = self.pred_head_rot(agent_nodes)
+            agent_state_change = self.pred_head_g(agent_nodes)
             # need to further agg. since the predictions comes out for 8 diff nodes. 
             # breakpoint()
 
             predictions[t, :2] = agent_translation
-            predictions[t, 2:3] = agent_rotation
-            predictions[t, 3:4] = agent_state_change
+            predictions[t, 2] = agent_rotation
+            predictions[t, 3] = agent_state_change
             t +=1
 
         return predictions
@@ -478,7 +489,7 @@ class RhoNN(nn.Module):
         z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
         z1 = self.ln1(X,z1)
         z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
-        z2 = self.ln2(X,z2)
+        z2 = self.ln2(z1,z2)
 
         return z2
 
@@ -524,7 +535,7 @@ class PhiNN(nn.Module):
         z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
         z1 = self.ln1(X,z1)
         z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
-        z2 = self.ln2(X,z2)
+        z2 = self.ln2(z1,z2)
 
         return z2
 
@@ -572,10 +583,36 @@ class PsiNN(nn.Module):
         z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
         z1 = self.ln1(X, z1)
         z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
-        z2 = self.ln1(X, z2)
+        z2 = self.ln1(z1, z2)
         
         return z2
 
+# think about this hmm
+class ChiNN(nn.Module):
+
+    def __init__(self, num_node_feature, output_size, num_edge_feature):
+        super(ChiNN, self).__init__()
+        self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=num_node_feature,
+                                       hidden_dim=output_size,
+                                       num_edge_feature=num_edge_feature)
+        
+        self.ln1 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
+
+        self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
+                                       edge_types=self.edge_types,
+                                       num_node_features=output_size,
+                                       hidden_dim=output_size,
+                                       num_edge_feature=num_edge_feature)
+
+        self.ln2 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
 
 class ResidualBlock(nn.Module):
 
@@ -588,12 +625,10 @@ class ResidualBlock(nn.Module):
             node_type.name : nn.LayerNorm(size) for node_type in self.node_types
         })
 
-        
-        pass
 
     def forward(self, X, z):
         for node_type in z.keys():
-            if node_type in self.layer_norms:
+            if node_type.name in self.layer_norms:
                 # Layer norm
                 normed = self.layer_norms[node_type.name](z[node_type])
                 # Residual connection (only if dimensions match)

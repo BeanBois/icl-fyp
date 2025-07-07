@@ -468,19 +468,6 @@ class ActionGraph:
             self.node_idx_dict[node] = i
     
 
-    # not used for now
-    # def _connect_demo_to_predicted_graph(self):
-    #     for demo in self.curr_graph.demo_graphs:
-    #         for demo_graph in demo:
-    #             predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
-    #             demo_graph_agent_nodes = demo_graph.agent_nodes
-
-    #             for demo_node in demo_graph_agent_nodes:
-    #                 for pred_node in predicted_graph_agent_nodes:
-    #                     if pred_node.tag == demo_node.tag:
-    #                         self.action_edges.add(Edge(source = demo_node, dest = pred_node, edge_type=EdgeType.AGENT_DEMOACTION_AGENT))
-
-
     def _connect_curr_graph_to_predicted_graph(self):
         curr_graph_agent_nodes = self.curr_graph.agent_nodes
         predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
@@ -552,36 +539,56 @@ class ActionGraph:
         agent_node.orientation = (agent_node.orientation % 360)
         return agent_node
 
-    def _check_collision(self, moving_node, static_node, collision_delta = 5):
-        # moving node is the one to be update
-        # collision delta gives us a radius that allows of uncertainty in node position wrt to object position
-        collided = False 
-        collision_angle = None 
-        dxdy = static_node.pos - moving_node.pos 
-        distance = np.linalg.norm(dxdy)
-        if distance <= collision_delta:
-            collided = True
-            collision_angle = np.arctan2(dxdy[1], dxdy[0])
-        return collided, collision_angle
+    # not used for now
+
+    # def _check_collision(self, moving_node, static_node, collision_delta = 5):
+    #     # moving node is the one to be update
+    #     # collision delta gives us a radius that allows of uncertainty in node position wrt to object position
+    #     collided = False 
+    #     collision_angle = None 
+    #     dxdy = static_node.pos - moving_node.pos 
+    #     distance = np.linalg.norm(dxdy)
+    #     if distance <= collision_delta:
+    #         collided = True
+    #         collision_angle = np.arctan2(dxdy[1], dxdy[0])
+    #     return collided, collision_angle
     
-    # this is a naive implementation, we just raw update each collision individually s.t we assume updates dont cause further collision
-    # even if it does, it just an approximate solution and the probability of it happening is quite low
-    # our assumption is that collision should be usually 1, rarely 2 
-    def _update_node_pos_based_on_collisions(self, predicted_agent_nodes, collisions, collision_update = 1):
-        for collision_angle in collisions:
-            for agent_node, i in enumerate(predicted_agent_nodes):
-                dxdy = collision_update * np.array([np.cos(collision_angle), np.sin(collision_angle)])
-                predicted_agent_nodes[i].pos = agent_node.pos - dxdy 
+    # # this is a naive implementation, we just raw update each collision individually s.t we assume updates dont cause further collision
+    # # even if it does, it just an approximate solution and the probability of it happening is quite low
+    # # our assumption is that collision should be usually 1, rarely 2 
+    # def _update_node_pos_based_on_collisions(self, predicted_agent_nodes, collisions, collision_update = 1):
+    #     for collision_angle in collisions:
+    #         for agent_node, i in enumerate(predicted_agent_nodes):
+    #             dxdy = collision_update * np.array([np.cos(collision_angle), np.sin(collision_angle)])
+    #             predicted_agent_nodes[i].pos = agent_node.pos - dxdy 
 
-        return predicted_agent_nodes
+    #     return predicted_agent_nodes
 
+    
+    # def _connect_demo_to_predicted_graph(self):
+    #     for demo in self.curr_graph.demo_graphs:
+    #         for demo_graph in demo:
+    #             predicted_graph_agent_nodes = self.predicted_graph.agent_nodes
+    #             demo_graph_agent_nodes = demo_graph.agent_nodes
+
+    #             for demo_node in demo_graph_agent_nodes:
+    #                 for pred_node in predicted_graph_agent_nodes:
+    #                     if pred_node.tag == demo_node.tag:
+    #                         self.action_edges.add(Edge(source = demo_node, dest = pred_node, edge_type=EdgeType.AGENT_DEMOACTION_AGENT))
+
+
+# not used
+class ObjectGraph:
+
+    def __init__(self, agent_nodes, keypoints):
+
+        pass
 
 def make_localgraph(obs):
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']
     agent_state = obs['agent-state']
     agent_orientation = obs['agent-orientation']
-
     timestep = obs['time']
     graph = LocalGraph(point_clouds, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state, agent_orientation=agent_orientation)
     return graph 
