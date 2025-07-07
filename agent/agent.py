@@ -454,6 +454,7 @@ class RhoNN(nn.Module):
 
     def __init__(self, num_node_feature, output_size, num_edge_feature,device):
         super(RhoNN, self).__init__()
+        self.device = device
         self.edge_types = [EdgeType.AGENT_TO_AGENT, EdgeType.OBJECT_TO_AGENT, EdgeType.OBJECT_TO_OBJECT]
         self.node_types = [node_type for node_type in NodeType]
         
@@ -507,6 +508,8 @@ class PhiNN(nn.Module):
 
     def __init__(self, num_node_feature, output_size, num_edge_feature, device):
         super(PhiNN, self).__init__()
+        self.device = device
+
         self.edge_types = [EdgeType.AGENT_COND_AGENT, EdgeType.AGENT_DEMO_AGENT]
         self.node_types = [node_type for node_type in NodeType]
         self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
@@ -556,8 +559,10 @@ class PhiNN(nn.Module):
 # 'nodes' will be a num_agent_nodes x num_features matrix 
 class PsiNN(nn.Module):
 
-    def __init__(self, num_node_feature, output_size, num_edge_feature):
+    def __init__(self, num_node_feature, output_size, num_edge_feature,device):
         super(PsiNN, self).__init__()
+        self.device = device
+
         self.edge_types = [EdgeType.AGENT_TIME_ACTION_AGENT]
         self.node_types = [node_type for node_type in NodeType]
         self.l1 = HeteroAttentionLayer(node_types=self.node_types, 
