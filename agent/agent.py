@@ -143,13 +143,13 @@ class InstantPolicy(nn.Module):
             self.node_embd_dim - self.agent_state_embd_dim, 
             device=self.device
         )
-        self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim)
+        self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim, device=self.device)
         self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
         self.object_embedders = nn.ModuleDict({
-            node_type.name : nn.Embedding(1,self.node_embd_dim)
+            node_type.name : nn.Embedding(1,self.node_embd_dim, device=self.device)
             for node_type in NodeType if node_type != NodeType.AGENT
         }) # 1 embedder for each node type except for agent nodes since they share similar geometry
-        self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim)
+        self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components
         self.rho = RhoNN(num_node_feature=self.node_embd_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)

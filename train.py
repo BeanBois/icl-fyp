@@ -41,7 +41,6 @@ class PseudoDemoGenerator:
         self.max_rotation = np.pi / 9  # 20 degrees
 
 
-
     def get_sample(self, mode):
         context = self._get_context(mode)
         # dont actaully need label HAHAHAH
@@ -81,7 +80,7 @@ class PseudoDemoGenerator:
             
     def _linear_beta_schedule(self, beta_start, beta_end, timesteps):
         """Create linear noise schedule"""
-        return torch.linspace(beta_start, beta_end, timesteps)
+        return torch.linspace(beta_start, beta_end, timesteps, device = self.device)
     
     def _get_ground_truth(self,mode):
         pseudo_demo = self._run_game(mode)
@@ -92,7 +91,7 @@ class PseudoDemoGenerator:
         # also go to Action class and have a function that reutrns a np.array 
 
         action_dim = (len(true_actions), len(true_actions[0]))
-        label = torch.zeros(size = action_dim)
+        label = torch.zeros(size = action_dim, device=self.device)
         for i, action in enumerate(true_actions):
             label[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
 
