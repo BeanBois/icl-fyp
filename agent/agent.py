@@ -152,9 +152,9 @@ class InstantPolicy(nn.Module):
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components
-        self.rho = RhoNN(num_node_feature=self.node_embd_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
-        self.phi = PhiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
-        self.psi = PsiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim)
+        self.rho = RhoNN(num_node_feature=self.node_embd_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim, device=self.device)
+        self.phi = PhiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim, device=self.device)
+        self.psi = PsiNN(num_node_feature=self.hidden_dim, output_size = self.hidden_dim, num_edge_feature=self.edge_embd_dim, device=self.device)
 
         self.chi = None 
         # an additional layer that processes the agent nodes after psi. main point is to agg with attention mechanism on how centre of mass should be adjusted
@@ -163,21 +163,21 @@ class InstantPolicy(nn.Module):
         # 
 
         self.pred_head = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.node_embd_dim),
+            nn.Linear(self.hidden_dim, self.node_embd_dim, device=self.device),
             nn.GELU(),
-            nn.Linear(self.node_embd_dim,2),
+            nn.Linear(self.node_embd_dim,2, device=self.device),
         )
 
         self.pred_head_rot = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.node_embd_dim),
+            nn.Linear(self.hidden_dim, self.node_embd_dim,device=self.device),
             nn.GELU(),
-            nn.Linear(self.node_embd_dim,1),
+            nn.Linear(self.node_embd_dim,1,device=self.device),
         )
 
         self.pred_head_g = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.node_embd_dim),
+            nn.Linear(self.hidden_dim, self.node_embd_dim,device=self.device),
             nn.GELU(),
-            nn.Linear(self.node_embd_dim,1),
+            nn.Linear(self.node_embd_dim,1,device=self.device),
         )
 
 
@@ -452,7 +452,7 @@ class InstantPolicy(nn.Module):
 # 'nodes' will be a num_nodes x num_features matrix 
 class RhoNN(nn.Module):
 
-    def __init__(self, num_node_feature, output_size, num_edge_feature):
+    def __init__(self, num_node_feature, output_size, num_edge_feature,device):
         super(RhoNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_TO_AGENT, EdgeType.OBJECT_TO_AGENT, EdgeType.OBJECT_TO_OBJECT]
         self.node_types = [node_type for node_type in NodeType]
@@ -462,21 +462,26 @@ class RhoNN(nn.Module):
                                        num_node_features=num_node_feature,
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature,
+                                       device=self.device
                                        )
         
         self.ln1 = ResidualBlock(
             size = output_size,
-            node_type=self.node_types
+            node_type=self.node_types,
+            device=self.device
         )
 
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=output_size,
                                        hidden_dim=output_size,
-                                       num_edge_feature=num_edge_feature)
+                                       num_edge_feature=num_edge_feature,
+                                       device=self.device
+                                       )
         self.ln2 = ResidualBlock(
             size = output_size,
-            node_type=self.node_types
+            node_type=self.node_types,
+            device=self.device
         )
 
     def forward(self,
@@ -500,7 +505,7 @@ class RhoNN(nn.Module):
 # 'nodes' will be a num_agent_nodes x num_features matrix 
 class PhiNN(nn.Module):
 
-    def __init__(self, num_node_feature, output_size, num_edge_feature):
+    def __init__(self, num_node_feature, output_size, num_edge_feature, device):
         super(PhiNN, self).__init__()
         self.edge_types = [EdgeType.AGENT_COND_AGENT, EdgeType.AGENT_DEMO_AGENT]
         self.node_types = [node_type for node_type in NodeType]
@@ -508,21 +513,25 @@ class PhiNN(nn.Module):
                                        edge_types=self.edge_types,
                                        num_node_features=num_node_feature,
                                        hidden_dim=output_size,
-                                       num_edge_feature=num_edge_feature)
+                                       num_edge_feature=num_edge_feature,
+                                       device=self.device)
         
         self.ln1 = ResidualBlock(
             size = output_size,
-            node_type=self.node_types
+            node_type=self.node_types,
+            device=self.device
         )
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=output_size,
                                        hidden_dim=output_size,
-                                       num_edge_feature=num_edge_feature)
+                                       num_edge_feature=num_edge_feature,
+                                       device=self.device)
         
         self.ln2 = ResidualBlock(
             size = output_size,
-            node_type=self.node_types
+            node_type=self.node_types,
+            device=self.device
         )
 
     def forward(self,
@@ -555,22 +564,26 @@ class PsiNN(nn.Module):
                                        edge_types=self.edge_types,
                                        num_node_features=num_node_feature,
                                        hidden_dim=output_size,
-                                       num_edge_feature=num_edge_feature)
+                                       num_edge_feature=num_edge_feature,
+                                       device=self.device)
         
         self.ln1 = ResidualBlock(
             size = output_size,
-            node_type=self.node_types
+            node_type=self.node_types,
+            device=self.device
         )
 
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=output_size,
                                        hidden_dim=output_size,
-                                       num_edge_feature=num_edge_feature)
+                                       num_edge_feature=num_edge_feature,
+                                       device=self.device)
 
         self.ln2 = ResidualBlock(
             size = output_size,
-            node_type=self.node_types
+            node_type=self.node_types,
+            device=self.device
         )
 
     def forward(self,
@@ -616,13 +629,13 @@ class ChiNN(nn.Module):
 
 class ResidualBlock(nn.Module):
 
-    def __init__(self, size, node_type):
+    def __init__(self, size, node_type, device):
         # Layer normalization for residuals
         super(ResidualBlock, self).__init__()
 
         self.node_types = node_type
         self.layer_norms = nn.ModuleDict({
-            node_type.name : nn.LayerNorm(size) for node_type in self.node_types
+            node_type.name : nn.LayerNorm(size, device=self.device) for node_type in self.node_types
         })
 
 
@@ -653,6 +666,7 @@ class HeteroAttentionLayer(nn.Module):
                  edge_types : List[EdgeType], 
                  num_node_features : int, 
                  num_edge_feature : int, 
+                 device,
                  hidden_dim = 64, 
                  num_heads = 4, 
                  head_dim = 16):
@@ -664,33 +678,34 @@ class HeteroAttentionLayer(nn.Module):
         self.edge_types = edge_types
         self.hidden_dim = hidden_dim
         self.num_heads = num_heads
+        self.device = device
         self.head_dim = torch.tensor(head_dim)
 
         # functions declarations 
         self.softmax = torch.nn.Softmax(dim=-1)
 
         self.W1 = nn.ModuleDict({
-            node_type.name : nn.Linear(num_node_features, hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim, device=self.device)
             for node_type in node_types 
         })
 
         self.W2 = nn.ModuleDict({
-            node_type.name : nn.Linear(num_node_features, hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim, device=self.device)
             for node_type in node_types
         })
 
         self.W3 = nn.ModuleDict({
-            node_type.name : nn.Linear(num_node_features, hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim, device=self.device)
             for node_type in node_types
         })
 
         self.W4 = nn.ModuleDict({
-            node_type.name : nn.Linear(num_node_features, hidden_dim)
+            node_type.name : nn.Linear(num_node_features, hidden_dim, device=self.device)
             for node_type in node_types
         })
 
         self.W5 = nn.ModuleDict({
-            edge_type.name : nn.Linear(num_edge_feature, hidden_dim)
+            edge_type.name : nn.Linear(num_edge_feature, hidden_dim, device=self.device)
             for edge_type in edge_types
         })
     # now need to reshape the matrixes into [self.num_heads, self.head_dim]
