@@ -452,11 +452,21 @@ class RhoNN(nn.Module):
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature,
                                        )
+        
+        self.ln1 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
+
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=output_size,
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
+        self.ln2 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
 
     def forward(self,
                 X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
@@ -466,7 +476,9 @@ class RhoNN(nn.Module):
                 edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix)
     ):
         z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
+        z1 = self.ln1(X,z1)
         z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
+        z2 = self.ln2(X,z2)
 
         return z2
 
@@ -486,11 +498,21 @@ class PhiNN(nn.Module):
                                        num_node_features=num_node_feature,
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
+        
+        self.ln1 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=output_size,
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
+        
+        self.ln2 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
 
     def forward(self,
                 X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
@@ -500,8 +522,10 @@ class PhiNN(nn.Module):
                 edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix)
     ):
         z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
+        z1 = self.ln1(X,z1)
         z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
-        
+        z2 = self.ln2(X,z2)
+
         return z2
 
 
@@ -521,13 +545,22 @@ class PsiNN(nn.Module):
                                        num_node_features=num_node_feature,
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
+        
+        self.ln1 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
+
         self.l2 = HeteroAttentionLayer(node_types=self.node_types, 
                                        edge_types=self.edge_types,
                                        num_node_features=output_size,
                                        hidden_dim=output_size,
                                        num_edge_feature=num_edge_feature)
 
-
+        self.ln2 = ResidualBlock(
+            size = output_size,
+            node_type=self.node_types
+        )
 
     def forward(self,
                 X : Dict[NodeType, torch.Tensor], # dictionary of matrix of node-features N x F 
@@ -537,13 +570,40 @@ class PsiNN(nn.Module):
                 edge_index_dict : Dict[EdgeType, List[Tuple[int,int]]], # dictionary containing list of tuple that corr to Connectivity matrix)
     ):
         z1 = self.l1(X, node_index_dict, A, E, edge_index_dict)
+        z1 = self.ln1(X, z1)
         z2 = self.l2(z1, node_index_dict, A, E, edge_index_dict)
+        z2 = self.ln1(X, z2)
         
         return z2
 
 
+class ResidualBlock(nn.Module):
+
+    def __init__(self, size, node_type):
+        # Layer normalization for residuals
+        super(ResidualBlock, self).__init__()
+
+        self.node_types = node_type
+        self.layer_norms = nn.ModuleDict({
+            node_type.name : nn.LayerNorm(size) for node_type in self.node_types
+        })
+
+        
+        pass
+
+    def forward(self, X, z):
+        for node_type in z.keys():
+            if node_type in self.layer_norms:
+                # Layer norm
+                normed = self.layer_norms[node_type.name](z[node_type])
+                # Residual connection (only if dimensions match)
+                if node_type in X and X[node_type].shape == normed.shape:
+                    z[node_type] = normed + X[node_type]
+                else:
+                    z[node_type] = normed
+        return z
+
 # This transformer will act on 3 types of graph:
-    # 
 class HeteroAttentionLayer(nn.Module):
 
     # hidden dim in original paper is used bc of the occupancy net?
