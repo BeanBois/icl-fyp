@@ -637,6 +637,7 @@ class ResidualBlock(nn.Module):
     def __init__(self, size, node_type, device):
         # Layer normalization for residuals
         super(ResidualBlock, self).__init__()
+        self.device = device
 
         self.node_types = node_type
         self.layer_norms = nn.ModuleDict({
