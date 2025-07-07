@@ -203,7 +203,7 @@ class Trainer:
         return total_loss / num_steps_per_epoch
     
     def full_training(self, num_steps_per_epoch=200, num_epochs=50, 
-                      save_model = True):
+                      save_model = True, save_path = "instant_policy.pth"):
         avg_losses = []
         for epoch in range(num_epochs):
             avg_loss = self.train_epoch(num_steps_per_epoch)
@@ -215,7 +215,7 @@ class Trainer:
             avg_losses.append(avg_loss)
         self.plot_losses(avg_losses,num_steps_per_epoch)
         if save_model:
-            torch.save(self.agent, 'instant_policy.pth')
+            torch.save(self.agent, save_path)
 
 
     def plot_losses(self, losses,num_steps_per_epoch):
@@ -230,6 +230,7 @@ class Trainer:
 # Usage example:
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
     # Initialize agent
     agent = InstantPolicy(device=device)
     

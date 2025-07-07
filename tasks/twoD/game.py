@@ -864,6 +864,7 @@ class PseudoGame:
             self.mode = random.choice([PseudoGameMode.EAT_EDIBLE, PseudoGameMode.AVOID_OBSTACLE, PseudoGameMode.REACH_GOAL])
         
 
+    # if biased 
     def _setup_pseudo_game(self):
         if self.mode == PseudoGameMode.EAT_EDIBLE:
             x = random.randint(50, self.screen_width - 50)
@@ -894,9 +895,7 @@ class PseudoGame:
             y = random.randint(50, self.screen_height - 50)
             self.object = Goal(x,y)
         
-    # this function is very bad
-    # for edibles and goal we need it to actually move towards it
-    # but not doing it
+
     def _sample_waypoints(self):
         game_obj_positions = self._get_game_obj_pos()
         object_pos = game_obj_positions['object']  # tl, tr, br, bl, center
@@ -913,10 +912,14 @@ class PseudoGame:
                 # Sample waypoints along the direct path to the goal
                 player_center = agent_pos['center']
                 object_center = object_pos['center']
-                direction_vector = np.array(object_center) - np.array(player_center)
+                direction_vector = None 
+                if type(self.object) == Goal:
+                    direction_vector = np.array(object_center) - np.array(player_center)
+                else:
+                    direction_vector = (np.array(object_center) - np.array(player_center)) * 1.5 # want the agent to cross the edible object
                 for i in range(1, self.num_waypoints_used + 1):
                     # Sample points along the line with some random offset
-                    t = i / (self.num_waypoints_used + 1)  # Parameter along the line
+                    t = i / (self.num_waypoints_used)  # Parameter along the line
                     base_point = np.array(player_center) + t * direction_vector
                     
                     # Add small random offset perpendicular to the direction
