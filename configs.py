@@ -1,0 +1,35 @@
+CONFIGS = {
+
+    # AGENT CONFIGS
+    'NUM_AGENT_NODES' : 4,
+    'PRED_HORIZON' : 5,
+    'HIDDEN_DIM' : 64,
+    'NODE_EMB_DIM' : 16,
+    'EDGE_EMB_DIM' : 16,
+    'AGENT_STATE_EMB_DIM' : 4,
+    'EDGE_POS_DIM': 2,
+
+
+    # DEMO CONFIGS (BOTH)
+    'NUM_SAMPLED_POINTCLOUDS' : 30,
+    # PSEUDO-DEMO CONFIGS
+    "DEMO_MAX_LENGTH" : 6,
+    'DEMO_MIN_LENGTH' : 2,
+    # DEMO GIVEN CONFIGS
+    "DEMO_LENGTH" : 6,
+
+
+
+    # TRAINING CONFIGS:
+    'NUM_DIFFUSION_STEPS' : 100,
+    'NUM_DEMO_GIVEN' : 6,
+    'NUM_STEPS_PER_EPOCH' : 200,
+    'NUM_EPOCHS' : 50,
+    'SAVE_MODEL' : True,
+    'MODEL_FILE_PATH' :  "instant_policy.pth",
+
+    # TESTING CONFIGS
+    'MAX_INFERENCE_ITER' : 50
+
+
+}

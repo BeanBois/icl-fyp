@@ -16,6 +16,8 @@ import random
 import matplotlib.pyplot as plt
 
 
+
+
 # Generates a single X for training. 
 #  X contains:
 #       context : list of (obs, action)
@@ -23,9 +25,13 @@ import matplotlib.pyplot as plt
 #       data : the graph-seq of noisy Nth demo
 class PseudoDemoGenerator:
 
-    def __init__(self, device, num_diffusion_steps, N = 5):
+    def __init__(self, device, num_diffusion_steps, num_demos = 5, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20):
         self.num_diffusion_steps = num_diffusion_steps
-        self.N = N
+        self.num_demos = num_demos
+        self.min_demo_length = min_demo_length
+        self.max_demo_length = max_demo_length
+
+        self.num_sampled_pc = num_sampled_pointclouds
         self.device = device
         self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
         self.alpha_schedule = 1-self.beta_schedule
@@ -52,7 +58,7 @@ class PseudoDemoGenerator:
         max_retries = 5
         for attempt in range(max_retries):
             try: 
-                pseudo_demo = PseudoGame(mode=mode)
+                pseudo_demo = PseudoGame(mode=mode, max_num_sampled_waypoints=self.max_demo_length, min_num_sampled_waypoints=self.min_demo_length, num_sampled_point_clouds=self.num_sampled_pc)
                 pseudo_demo.run()
                 return pseudo_demo
             except Exception as e:
@@ -63,7 +69,7 @@ class PseudoDemoGenerator:
 
     def _get_context(self, mode):
         context = []
-        for _ in range(self.N - 1):
+        for _ in range(self.num_demos - 1):
             pseudo_demo = self._run_game(mode)
             observations = pseudo_demo.observations 
             context.append(observations)
@@ -155,10 +161,17 @@ class PseudoDemoGenerator:
 
 class Trainer:
 
-    def __init__(self, agent, num_demos_for_context, num_diffusion_steps = 100, device='cuda'):
+    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, num_diffusion_steps = 100, device='cuda'):
         self.agent = agent
         self.device = device 
-        self.data_generator = PseudoDemoGenerator(N = num_demos_for_context + 1, num_diffusion_steps= num_diffusion_steps, device=self.device)
+        self.data_generator = PseudoDemoGenerator(
+                num_demos = num_demos_for_context + 1, 
+                num_diffusion_steps= num_diffusion_steps, 
+                max_demo_length = max_demo_length, 
+                min_demo_length=min_demo_length,
+                num_sampled_pointclouds=num_sampled_pointclouds,
+                device=self.device
+                )
         self.num_diffusion_steps = num_diffusion_steps
   
         self.modes = [mode for mode in PseudoGameMode if mode != PseudoGameMode.RANDOM]
@@ -173,7 +186,7 @@ class Trainer:
         curr_obs = data['current_observation'] # not a tensor
         noisy_actions = data['noisy_actions'] # tensor 
         noise = data['noises']
-        predictions = self.agent.forward(
+        predictions = self.agent(
             curr_obs,
             context,
             noisy_actions
@@ -227,19 +240,43 @@ class Trainer:
             
 
 
+
 # Usage example:
 if __name__ == "__main__":
+    from configs import CONFIGS
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize agent
-    agent = InstantPolicy(device=device)
+    agent = InstantPolicy(
+                device=device, 
+                num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
+                pred_horizon=CONFIGS['PRED_HORIZON'],
+                hidden_dim=CONFIGS['HIDDEN_DIM'],
+                node_embd_dim=CONFIGS['NODE_EMB_DIM'],
+                edge_embd_dim=CONFIGS['EDGE_EMB_DIM'],
+                agent_state_embd_dim=CONFIGS['AGENT_STATE_EMB_DIM'],
+                edge_pos_dim=CONFIGS['EDGE_POS_DIM']
+                )
+    
     
     # Initialize trainer
-    trainer = Trainer(agent,device=device, num_demos_for_context=5)
+    trainer = Trainer(agent,
+                      device=device, 
+                      num_demos_for_context=CONFIGS['NUM_DEMO_GIVEN'],
+                      max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
+                      min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
+                      num_sampled_pointclouds=CONFIGS['NUM_SAMPLED_POINTCLOUDS'],
+                      num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
+                      )
     
     
     # Train the model
-    trainer.full_training()
+    trainer.full_training(
+        save_path=CONFIGS['MODEL_FILE_PATH'],
+        save_model=CONFIGS['SAVE_MODEL'],
+        num_steps_per_epoch=CONFIGS['NUM_STEPS_PER_EPOCH'],
+        num_epochs=CONFIGS['NUM_EPOCHS']
+    )
 
 
 

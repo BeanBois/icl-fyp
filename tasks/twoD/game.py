@@ -463,11 +463,13 @@ class GameInterface:
         obs = self.get_obs()
         return obs 
   
-    def restart_game(self):
+    def reset(self):
         self.game.restart_game()
         self.running = True
         self.t = 0
 
+    def change_mode(self,mode):
+        self.mode = mode
     # we do furthest point sampling algorithm to retrieve a cloud of point clouds
     # These sampled ppoint clouds is then used to create a graph representation 
     def get_obs(self):
@@ -569,8 +571,6 @@ class GameInterface:
             self.game.clock.tick(60)
             obs = self.get_obs()
             return obs 
-        else:
-            pygame.quit()
     
     def _get_agent_pos(self):
         player_pos = self.game.player.get_pos()
@@ -642,8 +642,15 @@ class PseudoGameMode(Enum):
 # pseudogame used to generate a pseudo demo
 class PseudoGame:
 
-    def __init__(self, max_num_sampled_waypoints = 6, min_num_sampled_waypoints = 2, mode = PseudoGameMode.RANDOM, biased = True, 
-                 augmented = False, screen_width = 400, screen_height = 300, num_sampled_point_clouds = 20):
+    def __init__(self, 
+                 max_num_sampled_waypoints = 6, 
+                 min_num_sampled_waypoints = 2, 
+                 mode = PseudoGameMode.RANDOM, 
+                 biased = True, 
+                 augmented = False, 
+                 screen_width = 400, 
+                 screen_height = 300, 
+                 num_sampled_point_clouds = 20):
         
         os.environ['SDL_VIDEODRIVER'] = 'dummy' # running headless
         # setup configs for pseudo game
