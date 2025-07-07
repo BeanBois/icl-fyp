@@ -432,7 +432,10 @@ class InstantPolicy(nn.Module):
         return predictions
 
     def _recover_action_obj(self, action):
-        x, y, theta, state_change = action
+        if action.device == 'cpu':
+            x, y, theta, state_change = action
+        else:
+            x, y, theta, state_change = action.cpu()
         forward_movement = np.sqrt(x**2 + y**2)
         
         # Method 2: Signed projection (can be negative if moving backward)
