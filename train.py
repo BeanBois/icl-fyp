@@ -81,7 +81,13 @@ class PseudoDemoGenerator:
         # but dont put true_obs tho 
         # also go to Action class and have a function that reutrns a np.array 
 
-        return true_obs[0], true_actions
+        action_dim = (len(true_actions), len(true_actions[0]))
+        label = torch.zeros(size = action_dim)
+        for i, action in enumerate(true_actions):
+            label[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
+
+
+        return true_obs[0], label
     
     def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
 
@@ -173,7 +179,8 @@ class Trainer:
             noisy_actions
         )
         # then MSE lost for 
-        loss = nn.MSELoss()(predictions, noise)
+        loss = nn.MSELoss()(predictions, label)
+        # loss = nn.MSELoss()(predictions, noise)
 
         # backpropagation
         self.optimizer.zero_grad()
@@ -195,7 +202,7 @@ class Trainer:
         
         return total_loss / num_steps_per_epoch
     
-    def full_training(self, num_steps_per_epoch=100, num_epochs=20, 
+    def full_training(self, num_steps_per_epoch=200, num_epochs=50, 
                       save_model = True):
         avg_losses = []
         for epoch in range(num_epochs):

@@ -14,6 +14,9 @@ from tasks.twoD.game import Action# use when running from rwd
 
 from typing import Dict, List, Tuple
 
+
+# We use layer normalisation layers (Ba, 2016) between every attention layer and add additional residual connections to 
+# ensure good propagation of gradients throughout the network. 
 # TODO apply layer norm and residuals to rho, psi phi
 # Layer normalization
 # self.layer_norms = nn.ModuleDict({
