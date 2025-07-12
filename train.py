@@ -6,7 +6,7 @@ from utils.graph import LocalGraph, DemoGraph, ActionGraph, ContextGraph, make_l
 from tasks.twoD.game import GameInterface, PseudoGame, GameMode, PseudoGameMode
 
 # import agent
-from agent.agent import InstantPolicy
+from agent.agent import InstantPolicyAgent
 
 import torch
 import torch.nn as nn
@@ -21,20 +21,20 @@ import matplotlib.pyplot as plt
 # Generates a single X for training. 
 #  X contains:
 #       context : list of (obs, action)
-#       label : the original graph-seq of Nth demo
-#       data : the graph-seq of noisy Nth demo
+#       clean_actions : the actions taken in the Nth demo
+#       curr_obs : curr observation of the Nth demo
 class PseudoDemoGenerator:
 
-    def __init__(self, device, num_diffusion_steps, num_demos = 5, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20):
-        self.num_diffusion_steps = num_diffusion_steps
+    def __init__(self, device, num_demos = 5, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20):
+        # self.num_diffusion_steps = num_diffusion_steps
         self.num_demos = num_demos
         self.min_demo_length = min_demo_length
         self.max_demo_length = max_demo_length
         self.num_sampled_pc = num_sampled_pointclouds
         self.device = device
-        self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
-        self.alpha_schedule = 1-self.beta_schedule
-        self.alpha_cumprod = torch.cumprod(self.alpha_schedule, dim=0)
+        # self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
+        # self.alpha_schedule = 1-self.beta_schedule
+        # self.alpha_cumprod = torch.cumprod(self.alpha_schedule, dim=0)
 
         self.translation_scale = 500
         self.max_translation = 100  # 100 pixels
@@ -44,18 +44,9 @@ class PseudoDemoGenerator:
     def get_sample(self, mode):
         context = self._get_context(mode)
         # dont actaully need label HAHAHAH
-        curr_obs, clean_actions = self._get_ground_truth(mode)
+        curr_obs, clean_actions, fututre_obs = self._get_ground_truth(mode)
         clean_actions = torch.tensor(clean_actions, device = self.device)
-
-        data = {}
-        batch_size = len(clean_actions)
-        timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, noises = self._get_noisy_actions(clean_actions, timesteps)
-        data['current_observation']  = curr_obs
-        data['noisy_actions'] = noisy_actions  
-        data['noises'] = noises  
-        # change this later so that clean acitons is not returned and noise is instead
-        return data, context, clean_actions 
+        return curr_obs, context, clean_actions, fututre_obs
 
     def _run_game(self, mode):
         max_retries = 5
@@ -78,104 +69,93 @@ class PseudoDemoGenerator:
             context.append(observations)
         return context
             
-    def _linear_beta_schedule(self, beta_start, beta_end, timesteps):
-        """Create linear noise schedule"""
-        return torch.linspace(beta_start, beta_end, timesteps, device = self.device)
-    
     def _get_ground_truth(self,mode):
         pseudo_demo = self._run_game(mode)
         true_obs = pseudo_demo.observations
-        true_actions = pseudo_demo.get_actions() 
-        # then put true_actions into tensor since we will be using it
-        # but dont put true_obs tho 
-        # also go to Action class and have a function that reutrns a np.array 
+        actions = torch.tensor(pseudo_demo.get_actions(), dtype=torch.float, device = self.device)       
+        # true_actions = pseudo_demo.get_actions() 
+        # action_dim = (len(true_actions), len(true_actions[0]))
+        # actions = torch.zeros(size = action_dim, device=self.device)
 
-        action_dim = (len(true_actions), len(true_actions[0]))
-        label = torch.zeros(size = action_dim, device=self.device)
-        for i, action in enumerate(true_actions):
-            label[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
+        # for i, action in enumerate(true_actions):
+        #     actions[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
 
+        return true_obs[0], actions, true_obs[1:]
+    # def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
 
-        return true_obs[0], label
+    #     # Separate SE(2) transformations and binary state
+    #     se2_actions = actions[..., :3]  # Translation (2) + rotation (1)
+    #     binary_actions = actions[..., 3:4]  # Binary agent state
+        
+    #     # Project SE(2) to se(2) tangent space for noise addition
+    #     se2_tangent = self._se2_to_tangent(se2_actions)
+        
+    #     # Normalize to [-1, 1] range
+    #     se2_normalized = self._normalize_se2(se2_tangent)
+        
+    #     # Sample noise
+    #     se2_noise = torch.randn_like(se2_normalized)
+    #     binary_noise = torch.randn_like(binary_actions)
+        
+    #     # Add noise according to schedule
+    #     alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1)
+    #     # alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
+        
+    #     noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalized + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
+    #     noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
+        
+    #     # Convert back to SE(2) for graph construction
+    #     noisy_se2_unnorm = self._unnormalize_se2(noisy_se2)
+    #     noisy_se2_actions = self._tangent_to_se2(noisy_se2_unnorm)
+        
+    #     noisy_actions = torch.cat([noisy_se2_actions, noisy_binary], dim=-1)
+    #     noise = torch.cat([se2_noise, binary_noise], dim=-1)
+    #     return noisy_actions, noise.float()
     
-    def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
+    # def _se2_to_tangent(self, se2_actions):
+    #     """Convert SE(2) [x, y, theta] to se(2) tangent space"""
+    #     # For SE(2), tangent space is just [x, y, theta] since it's already linear
+    #     return se2_actions
 
-        # Separate SE(2) transformations and binary state
-        se2_actions = actions[..., :3]  # Translation (2) + rotation (1)
-        binary_actions = actions[..., 3:4]  # Binary agent state
-        
-        # Project SE(2) to se(2) tangent space for noise addition
-        se2_tangent = self._se2_to_tangent(se2_actions)
-        
-        # Normalize to [-1, 1] range
-        se2_normalized = self._normalize_se2(se2_tangent)
-        
-        # Sample noise
-        se2_noise = torch.randn_like(se2_normalized)
-        binary_noise = torch.randn_like(binary_actions)
-        
-        # Add noise according to schedule
-        alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1)
-        # alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
-        
-        noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalized + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
-        noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
-        
-        # Convert back to SE(2) for graph construction
-        noisy_se2_unnorm = self._unnormalize_se2(noisy_se2)
-        noisy_se2_actions = self._tangent_to_se2(noisy_se2_unnorm)
-        
-        noisy_actions = torch.cat([noisy_se2_actions, noisy_binary], dim=-1)
-        noise = torch.cat([se2_noise, binary_noise], dim=-1)
-        return noisy_actions, noise.float()
-    
-    def _se2_to_tangent(self, se2_actions):
-        """Convert SE(2) [x, y, theta] to se(2) tangent space"""
-        # For SE(2), tangent space is just [x, y, theta] since it's already linear
-        return se2_actions
+    # def _tangent_to_se2(self, tangent):
+    #     """Convert se(2) tangent space back to SE(2)"""
+    #     return tangent
 
-    def _tangent_to_se2(self, tangent):
-        """Convert se(2) tangent space back to SE(2)"""
-        return tangent
+    # def _normalize_se2(self, se2_tangent):
+    #     """Normalize SE(2) tangent vectors to [-1, 1]"""
+    #     # You'll need to define appropriate normalization ranges
+    #     # Example: normalize translations and rotation separately
+    #     translation = se2_tangent[..., :2]  # [x, y]
+    #     rotation = se2_tangent[..., 2:3]    # [theta]
+        
+    #     # Normalize translation (adjust ranges as needed)
+    #     norm_translation = translation / self.translation_scale
+    #     # Normalize rotation to [-1, 1] from [-π, π]
+    #     norm_rotation = rotation / torch.pi
+        
+    #     return torch.cat([norm_translation, norm_rotation], dim=-1)
 
-    def _normalize_se2(self, se2_tangent):
-        """Normalize SE(2) tangent vectors to [-1, 1]"""
-        # You'll need to define appropriate normalization ranges
-        # Example: normalize translations and rotation separately
-        translation = se2_tangent[..., :2]  # [x, y]
-        rotation = se2_tangent[..., 2:3]    # [theta]
+    # def _unnormalize_se2(self, normalized_se2):
+    #     """Unnormalize SE(2) from [-1, 1] back to original ranges"""
+    #     translation = normalized_se2[..., :2] * self.translation_scale
+    #     rotation = normalized_se2[..., 2:3] * torch.pi
         
-        # Normalize translation (adjust ranges as needed)
-        norm_translation = translation / self.translation_scale
-        # Normalize rotation to [-1, 1] from [-π, π]
-        norm_rotation = rotation / torch.pi
-        
-        return torch.cat([norm_translation, norm_rotation], dim=-1)
-
-    def _unnormalize_se2(self, normalized_se2):
-        """Unnormalize SE(2) from [-1, 1] back to original ranges"""
-        translation = normalized_se2[..., :2] * self.translation_scale
-        rotation = normalized_se2[..., 2:3] * torch.pi
-        
-        return torch.cat([translation, rotation], dim=-1)
+    #     return torch.cat([translation, rotation], dim=-1)
 
     
 
 class Trainer:
 
-    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, num_diffusion_steps = 100, device='cuda'):
+    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, device='cuda'):
         self.agent = agent
         self.device = device 
         self.data_generator = PseudoDemoGenerator(
-                num_demos = num_demos_for_context + 1, 
-                num_diffusion_steps= num_diffusion_steps, 
+                num_demos = num_demos_for_context + 1,  
                 max_demo_length = max_demo_length, 
                 min_demo_length=min_demo_length,
                 num_sampled_pointclouds=num_sampled_pointclouds,
                 device=self.device
                 )
-        self.alpha_schedule = self.data_generator.alpha_schedule
-        self.num_diffusion_steps = num_diffusion_steps
   
         self.modes = [mode for mode in PseudoGameMode if mode != PseudoGameMode.RANDOM]
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
@@ -185,20 +165,17 @@ class Trainer:
 
     def train_step(self):
         mode = self.modes[random.randint(0,len(self.modes)-1)]
-        data, context, label = self.data_generator.get_sample(mode) # label is a tensor
+        curr_obs, context, clean_actions = self.data_generator.get_sample(mode) # clean action is a tensor
 
-        curr_obs = data['current_observation'] # not a tensor
-        noisy_actions = data['noisy_actions'] # tensor 
-        noise = data['noises']
-        predictions = self.agent(
+        predicted_noise, actual_noise = self.agent(
             curr_obs,
             context,
-            noisy_actions
+            clean_actions
         )
 
 
         # then MSE lost for 
-        loss = nn.MSELoss()(predictions, noise)
+        loss = nn.MSELoss()(predicted_noise, actual_noise)
         # loss = nn.MSELoss()(predictions, noise)
 
         # backpropagation
@@ -254,8 +231,9 @@ if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # Initialize agent
-    agent = InstantPolicy(
+    agent = InstantPolicyAgent(
                 device=device, 
+                num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
                 num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
                 pred_horizon=CONFIGS['PRED_HORIZON'],
                 hidden_dim=CONFIGS['HIDDEN_DIM'],
@@ -273,7 +251,6 @@ if __name__ == "__main__":
                       max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
                       min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
                       num_sampled_pointclouds=CONFIGS['NUM_SAMPLED_POINTCLOUDS'],
-                      num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
                       )
     
     
