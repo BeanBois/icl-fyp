@@ -81,6 +81,7 @@ class PseudoDemoGenerator:
         #     actions[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
 
         return true_obs[0], actions, true_obs[1:]
+    
     # def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
 
     #     # Separate SE(2) transformations and binary state

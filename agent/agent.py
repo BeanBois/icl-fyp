@@ -57,8 +57,12 @@ from tasks.twoD.game import Action# use when running from rwd
 from typing import Dict, List, Tuple
 
 # ok unless we make actions stack this dont make sense hmm
-
 # need to produce per node denoising directions
+# right now from psd-gen we get curr_obs, clean_actions 
+# we then add noise to action by:
+    # first from (x,y,theta, sc) => SE(2) (3x3 mat) + sc
+    # SE(2) => se(2) tangent space (3x1 vector)
+    # 
 # so our label now becomes noise (caused by noisy actions) on future node positions 
 # so right now the code runs as follows:
     # with curr obs, noisy action and context
