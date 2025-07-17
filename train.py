@@ -32,6 +32,7 @@ class PseudoDemoGenerator:
         self.max_demo_length = max_demo_length
         self.num_sampled_pc = num_sampled_pointclouds
         self.device = device
+        self.agent_key_points = None
         # self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
         # self.alpha_schedule = 1-self.beta_schedule
         # self.alpha_cumprod = torch.cumprod(self.alpha_schedule, dim=0)
@@ -42,21 +43,28 @@ class PseudoDemoGenerator:
 
 
     def get_sample(self, mode):
-        context = self._get_context(mode)
-        # dont actaully need label HAHAHAH
+        context = self._get_context(mode)   
         curr_obs, clean_actions, fututre_obs = self._get_ground_truth(mode)
         clean_actions = torch.tensor(clean_actions, device = self.device)
-        return curr_obs, context, clean_actions, fututre_obs
+        return curr_obs, context, clean_actions
 
+    def get_agent_keypoints(self):
+        agent_keypoints = torch.zeros((len(self.agent_key_points), 2))
+        agent_keypoints[0] = torch.tensor(self.agent_key_points['front'], device=self.device)
+        agent_keypoints[1] = torch.tensor(self.agent_key_points['back-left'], device=self.device)
+        agent_keypoints[2] = torch.tensor(self.agent_key_points['back-right'], device=self.device)
+        agent_keypoints[3] = torch.tensor(self.agent_key_points['center'], device=self.device)
+        return agent_keypoints
+    
     def _run_game(self, mode):
-        max_retries = 5
+        max_retries = 1000
         for attempt in range(max_retries):
             try: 
                 pseudo_demo = PseudoGame(mode=mode, max_num_sampled_waypoints=self.max_demo_length, min_num_sampled_waypoints=self.min_demo_length, num_sampled_point_clouds=self.num_sampled_pc)
+                self.agent_key_points = pseudo_demo.get_player_keypoints()
                 pseudo_demo.run()
                 return pseudo_demo
             except Exception as e:
-                print(f'Attempted {attempt + 1} failed : {e}')
                 if attempt == max_retries-1:
                     raise 
                 continue
@@ -72,76 +80,16 @@ class PseudoDemoGenerator:
     def _get_ground_truth(self,mode):
         pseudo_demo = self._run_game(mode)
         true_obs = pseudo_demo.observations
-        actions = torch.tensor(pseudo_demo.get_actions(), dtype=torch.float, device = self.device)       
-        # true_actions = pseudo_demo.get_actions() 
-        # action_dim = (len(true_actions), len(true_actions[0]))
-        # actions = torch.zeros(size = action_dim, device=self.device)
-
-        # for i, action in enumerate(true_actions):
-        #     actions[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
-
+        actions = torch.tensor(pseudo_demo.get_actions(), dtype=torch.float, device = self.device)          
+        actions = self._process_actions(actions) # need to cat action tgt  s.t it stacks
         return true_obs[0], actions, true_obs[1:]
     
-    # def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
+    def _process_actions(self, actions):
+        for i in range(len(actions) - 1):
+            actions[i+1, :3] += actions[i, : 3] 
+            actions[i+1, 2] = actions[i+1, 2] % 360 
+        return actions 
 
-    #     # Separate SE(2) transformations and binary state
-    #     se2_actions = actions[..., :3]  # Translation (2) + rotation (1)
-    #     binary_actions = actions[..., 3:4]  # Binary agent state
-        
-    #     # Project SE(2) to se(2) tangent space for noise addition
-    #     se2_tangent = self._se2_to_tangent(se2_actions)
-        
-    #     # Normalize to [-1, 1] range
-    #     se2_normalized = self._normalize_se2(se2_tangent)
-        
-    #     # Sample noise
-    #     se2_noise = torch.randn_like(se2_normalized)
-    #     binary_noise = torch.randn_like(binary_actions)
-        
-    #     # Add noise according to schedule
-    #     alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1)
-    #     # alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
-        
-    #     noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalized + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
-    #     noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
-        
-    #     # Convert back to SE(2) for graph construction
-    #     noisy_se2_unnorm = self._unnormalize_se2(noisy_se2)
-    #     noisy_se2_actions = self._tangent_to_se2(noisy_se2_unnorm)
-        
-    #     noisy_actions = torch.cat([noisy_se2_actions, noisy_binary], dim=-1)
-    #     noise = torch.cat([se2_noise, binary_noise], dim=-1)
-    #     return noisy_actions, noise.float()
-    
-    # def _se2_to_tangent(self, se2_actions):
-    #     """Convert SE(2) [x, y, theta] to se(2) tangent space"""
-    #     # For SE(2), tangent space is just [x, y, theta] since it's already linear
-    #     return se2_actions
-
-    # def _tangent_to_se2(self, tangent):
-    #     """Convert se(2) tangent space back to SE(2)"""
-    #     return tangent
-
-    # def _normalize_se2(self, se2_tangent):
-    #     """Normalize SE(2) tangent vectors to [-1, 1]"""
-    #     # You'll need to define appropriate normalization ranges
-    #     # Example: normalize translations and rotation separately
-    #     translation = se2_tangent[..., :2]  # [x, y]
-    #     rotation = se2_tangent[..., 2:3]    # [theta]
-        
-    #     # Normalize translation (adjust ranges as needed)
-    #     norm_translation = translation / self.translation_scale
-    #     # Normalize rotation to [-1, 1] from [-π, π]
-    #     norm_rotation = rotation / torch.pi
-        
-    #     return torch.cat([norm_translation, norm_rotation], dim=-1)
-
-    # def _unnormalize_se2(self, normalized_se2):
-    #     """Unnormalize SE(2) from [-1, 1] back to original ranges"""
-    #     translation = normalized_se2[..., :2] * self.translation_scale
-    #     rotation = normalized_se2[..., 2:3] * torch.pi
-        
-    #     return torch.cat([translation, rotation], dim=-1)
 
     
 
@@ -162,22 +110,34 @@ class Trainer:
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
         self.optimizer = optim.AdamW(agent.parameters(), lr=1e-5)
 
-        
-
+    
     def train_step(self):
         mode = self.modes[random.randint(0,len(self.modes)-1)]
         curr_obs, context, clean_actions = self.data_generator.get_sample(mode) # clean action is a tensor
-
-        predicted_noise, actual_noise = self.agent(
+        
+        # actual noise should be a N x num-agent-nodes x 2 rep noise in positions of each agent node caused by actions 
+        # to get actual noise from noisy actions: either
+            # 1) treat noise as future-obs - predicted-action-graph-pos ( here then future obs need to be part of arg)
+            # 2) extract noise using k.p, clean-actions and noisy actions (doable lmao, put this in agent code)
+                # we have noise added to clean actions (noisy-actions - clean-actions) T_delta
+                # with T_delta we can 
+                # no we do this in train.py actually
+                # with raw_noise being noise added to actions 
+                # we process this raw_noise to produce noisy-positions with agent kp
+                # taking center as reference point (so for this noise added is literally just 2d-space the T_delta)
+                # then use other kps (wrt center) to calculate noise added to those 
+        
+        predicted_noise, raw_noise = self.agent(
             curr_obs,
             context,
             clean_actions
         )
+        agent_obj_keypoints = self.data_generator.get_agent_keypoints() # add this in data_generator 
 
+        actual_noise = self._get_position_noise(raw_noise, agent_obj_keypoints)
 
         # then MSE lost for 
         loss = nn.MSELoss()(predicted_noise, actual_noise)
-        # loss = nn.MSELoss()(predictions, noise)
 
         # backpropagation
         self.optimizer.zero_grad()
@@ -185,8 +145,7 @@ class Trainer:
         self.optimizer.step()
         
         return loss.item()
-
-    
+   
     def train_epoch(self, num_steps_per_epoch = 100):
         total_loss = 0.0
         for step in range(num_steps_per_epoch):
@@ -215,13 +174,36 @@ class Trainer:
             torch.save(self.agent, save_path)
             torch.save(self.alpha_schedule, f'{save_path[:5]}-alpha_schedule.pth')
 
-
     def plot_losses(self, losses,num_steps_per_epoch):
         plt.figure()
         plt.plot(losses)
         plt.title(f'avegrage losses from each epoch ({num_steps_per_epoch} steps)')
         plt.show()
 
+    # check this fn
+    # raw-noise : N  x (x,y,theta-rad,state)
+    def _get_position_noise(self,raw_noise, agent_key_points):
+        noise_size = (*raw_noise.shape[:2], 3) # N x num-agent-nodes x (x,y,state)
+        actual_noise = torch.zeros(size = noise_size, device = self.device)
+        # translation_noise = (raw_noise[:,0]**2 + raw_noise[:,1]**2)**0.5 # find torch op for this # this is p_delta
+        translation_noise = raw_noise[:,:2]
+
+        rotation_mat = torch.zeros((raw_noise.shape[0],2,2))
+        rotation_mat[:, 0,0] = torch.cos(raw_noise[:,2])
+        rotation_mat[:, 1,1] = torch.cos(raw_noise[:,2])
+        rotation_mat[:, 0,1] = -torch.sin(raw_noise[:,2])
+        rotation_mat[:, 1,0] = torch.sin(raw_noise[:,2])
+        # to get rot-noise, assuming kpp => (0,0) ... in (num-agent-nodesx2)
+        rotation_noise = torch.einsum('ij,njk->nik', agent_key_points, rotation_mat)
+
+        translation_noise_expanded = translation_noise.unsqueeze(1)  # Shape: (N, 1, 2)
+        actual_noise = translation_noise_expanded + rotation_noise  # Shape: (N, 4, 2)
+        
+
+        state_noise = raw_noise[:, 3:4]
+        state_noise_expanded = state_noise.unsqueeze(1).expand(-1, 4, -1)  # Shape: (N, 4, 1)
+        full_actual_noise = torch.cat([actual_noise, state_noise_expanded], dim=-1)  # Shape: (N, 4, 3)
+        return full_actual_noise
             
 
 
@@ -231,9 +213,11 @@ if __name__ == "__main__":
     from configs import CONFIGS
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+
     # Initialize agent
     agent = InstantPolicyAgent(
                 device=device, 
+                max_translation=CONFIGS['TRAINING_MAX_TRANSLATION'],
                 num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
                 num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
                 pred_horizon=CONFIGS['PRED_HORIZON'],

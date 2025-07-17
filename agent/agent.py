@@ -55,7 +55,7 @@ from utils.graph import DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType
 from tasks.twoD.game import Action# use when running from rwd
 
 from typing import Dict, List, Tuple
-
+"""
 # ok unless we make actions stack this dont make sense hmm
 # need to produce per node denoising directions
 # right now from psd-gen we get curr_obs, clean_actions 
@@ -73,12 +73,72 @@ from typing import Dict, List, Tuple
     # self.pred_g to predict the noise added in state
 
 # to get noise added in future state from noisy actions:
-    # 
+    #prev code to add noise  
+    # def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
+
+    #     # Separate SE(2) transformations and binary state
+    #     se2_actions = actions[..., :3]  # Translation (2) + rotation (1)
+    #     binary_actions = actions[..., 3:4]  # Binary agent state
+        
+    #     # Project SE(2) to se(2) tangent space for noise addition
+    #     se2_tangent = self._se2_to_tangent(se2_actions)
+        
+    #     # Normalize to [-1, 1] range
+    #     se2_normalized = self._normalize_se2(se2_tangent)
+        
+    #     # Sample noise
+    #     se2_noise = torch.randn_like(se2_normalized)
+    #     binary_noise = torch.randn_like(binary_actions)
+        
+    #     # Add noise according to schedule
+    #     alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1)
+    #     noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalized + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
+    #     noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
+        
+    #     # Convert back to SE(2) for graph construction
+    #     noisy_se2_unnorm = self._unnormalize_se2(noisy_se2)
+    #     noisy_se2_actions = self._tangent_to_se2(noisy_se2_unnorm)
+        
+    #     noisy_actions = torch.cat([noisy_se2_actions, noisy_binary], dim=-1)
+    #     noise = torch.cat([se2_noise, binary_noise], dim=-1)
+    #     return noisy_actions, noise.float()
     
+    # def _se2_to_tangent(self, se2_actions):
+    #     #Convert SE(2) [x, y, theta] to se(2) tangent space
+    #     # For SE(2), tangent space is just [x, y, theta] since it's already linear
+    #     return se2_actions
+
+    # def _tangent_to_se2(self, tangent):
+    #     #Convert se(2) tangent space back to SE(2)
+    #     return tangent
+
+    # def _normalize_se2(self, se2_tangent):
+    #     # Normalize SE(2) tangent vectors to [-1, 1]
+    #     # You'll need to define appropriate normalization ranges
+    #     # Example: normalize translations and rotation separately
+    #     translation = se2_tangent[..., :2]  # [x, y]
+    #     rotation = se2_tangent[..., 2:3]    # [theta]
+        
+    #     # Normalize translation (adjust ranges as needed)
+    #     norm_translation = translation / self.translation_scale
+    #     # Normalize rotation to [-1, 1] from [-π, π]
+    #     norm_rotation = rotation / torch.pi
+        
+    #     return torch.cat([norm_translation, norm_rotation], dim=-1)
+
+    # def _unnormalize_se2(self, normalized_se2):
+    #     # Unnormalize SE(2) from [-1, 1] back to original ranges
+    #     translation = normalized_se2[..., :2] * self.translation_scale
+    #     rotation = normalized_se2[..., 2:3] * torch.pi
+        
+    #     return torch.cat([translation, rotation], dim=-1)
+
+"""
 class InstantPolicyAgent(nn.Module):
 
     def __init__(self,
                 device,
+                max_translation,
                 num_diffusion_steps = 100,
                 num_agent_nodes = 4, 
                 pred_horizon = 5, 
@@ -88,6 +148,7 @@ class InstantPolicyAgent(nn.Module):
                 agent_state_embd_dim = 4,
                 edge_pos_dim = 2
                 ):
+        super(InstantPolicyAgent, self).__init__()
         
         self.policy = InstantPolicy(
                 device=device, 
@@ -99,6 +160,7 @@ class InstantPolicyAgent(nn.Module):
                 agent_state_embd_dim=agent_state_embd_dim,
                 edge_pos_dim=edge_pos_dim
                 )
+        self.max_translation = max_translation
         self.device = device 
         self.num_diffusion_steps = num_diffusion_steps
         self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
@@ -133,23 +195,37 @@ class InstantPolicyAgent(nn.Module):
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
         noisy_actions, noise = self._get_noisy_actions(clean_actions, timesteps)
-        actual_noise = self._get_noise(noise)
+        # actual_noise = self._get_noise(noise)
 
         node_embs = self.policy(curr_obs, context, noisy_actions) # N x self.num_agent_nodes x self.node_emb_dim
         _p_deltas = self.pred_head_p(node_embs) # N x self.num_agent_nodes x 2 
         _g_deltas = self.pred_head_g(node_embs) # N x self.num_agent_nodes x 1
 
         # actual noise needs to be N x self.num_agent_nodes x 3
-        # each represents noise
+        # _p_deltas is (N x num-agent-nodes x 2, _g_deltas )
+        predicted_noise = torch.cat([_p_deltas, _g_deltas], dim=-1)
 
-        predicted_noise = torch.cat([_p_deltas, _g_deltas], dim=0)
-
-        return predicted_noise, actual_noise 
+        return predicted_noise, noise 
 
     def _linear_beta_schedule(self, beta_start, beta_end, timesteps):
         """Create linear noise schedule"""
         return torch.linspace(beta_start, beta_end, timesteps, device = self.device)
     
+    def _SE2_to_actions(self,se2):
+        # actions from 3x3 matrix transformation => (x,y,theta)
+        num_actions = se2.shape[0]
+        actions = torch.zeros(num_actions, 3, device=self.device)
+        
+        # Extract translation components
+        actions[:, 0] = se2[:, 0, 2]  # x_trans
+        actions[:, 1] = se2[:, 1, 2]  # y_trans
+        
+        # Extract rotation angle and convert to degrees
+        angles_rad = torch.atan2(se2[:, 1, 0], se2[:, 0, 0])
+        actions[:, 2] = torch.rad2deg(angles_rad)
+        
+        return actions
+
     def _actions_to_SE2(self,actions):
         num_actions = actions.shape[0]
         se2_actions = torch.zeros(num_actions, 3,3, device=self.device) # 2x2 rot matr, with 2x1 translation mat
@@ -282,24 +358,81 @@ class InstantPolicyAgent(nn.Module):
         T[..., 2, 2] = 1.0
         
         return T
-# To add noise to the action expressed as (TEA ∈SE(3),ag ∈R, we first project TEA to se(3)
-# using a Logmap, normalise the resulting vectors, add the noise as described by Ho et al. (2020),
-    def _get_noisy_actions(self, clean_actions, timesteps):
+
+
+    # for large displacement, project to SE2 straight up, no need for se2
+    # our task involves 
+    def _get_noisy_actions(self, clean_actions, timesteps, mode = 'large'):
+
+        # binary actions dealt with similarly
         binary_actions = clean_actions[..., 3:4]  # Binary agent state
-        SE2_actions = self._actions_to_SE2(clean_actions)
-        se2_actions = self._SE2_to_se2(SE2_actions)
-        se2_normalised = self._normalise_se2(se2_actions)
-        se2_noise = torch.randn_like(se2_normalised)
-        binary_noise = torch.randn_like(binary_actions)
-        # ok fk we really need to thikn abt this
-        pass 
+        moving_actions = clean_actions[..., :-1]
+        alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1)
 
-    def _get_predicted_noise(self,node_embs):
-        pass 
 
-    def _normalise_se2(se2_actions):
+        # need to read the 2023 Ed paper for this
+        if mode == 'large':
+            # project to SE2
+            SE2_action = self._actions_to_SE2(moving_actions)
+
+            # sample noise
+            SE2_noise = torch.randn_like(SE2_action)
+            binary_noise = torch.rand_like(binary_actions)
+
+            # add noise acc to schedule
+            noisy_se2 = torch.sqrt(alpha_cumprod_t) * SE2_action + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
+            noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
+
+            # convert back to actions for graph construction
+            noisy_actions = self._SE2_to_actions(noisy_se2)
+            movement_noise = self._SE2_to_actions(SE2_noise)
+
+            full_noisy_actions = torch.cat([noisy_actions, noisy_binary], dim=-1)
+            full_noise = torch.cat([movement_noise, binary_noise], dim=-1)
+            return full_noisy_actions, full_noise.float()
+
+        else:
+            # first project action to SE(2), then to se(2)
+            SE2_actions = self._actions_to_SE2(moving_actions)
+            # SE2_actions = self._actions_to_SE2(clean_actions)
+            se2_actions = self._SE2_to_se2(SE2_actions)
+            # then normalise resulting vectors
+            se2_normalised = self._normalise_se2(se2_actions)
+
+            # sample noise
+            se2_noise = torch.randn_like(se2_normalised)
+            binary_noise = torch.randn_like(binary_actions)
+            
+            # add noise according to schedule
+            noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalised + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
+            noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
+
+            # Convert back noisy actions and noise to actions for graph construction
+            noisy_se2_unnorm = self._unnormalize_se2(noisy_se2)
+            noisy_se2_actions = self._se2_to_SE2(noisy_se2_unnorm)
+            noisy_actions = self._SE2_to_actions(noisy_se2_actions)
+
+            se2_noise_unorm = self._unnormalize_se2(noisy_se2)
+            SE2_noise = self._se2_to_SE2(se2_noise_unorm)
+            movement_noise = self._SE2_to_actions(SE2_noise)
+
+            full_noisy_actions = torch.cat([noisy_actions, noisy_binary], dim=-1)
+            full_noise = torch.cat([movement_noise, binary_noise], dim=-1)
+            return full_noisy_actions, full_noise.float()
+
+    def _normalise_se2(self,se2_actions):
+        se2_actions[...,:2] /= self.max_translation
+        se2_actions[...,2:3] /= torch.pi 
         return se2_actions
-# ARCHITECTURES 
+
+    def _unnormalize_se2(self, normalized_se2):
+        """Unnormalize SE(2) from [-1, 1] back to original ranges"""
+        translation = normalized_se2[..., :2] * self.max_translation
+        rotation = normalized_se2[..., 2:3] * torch.pi
+        
+        return torch.cat([translation, rotation], dim=-1)
+
+
 
 
 def SinCosEdgeEmbedding(source, dest, device, D=3):
@@ -531,14 +664,8 @@ class InstantPolicy(nn.Module):
         t = 0
         acc_action = None 
         for action in actions:
-            # need to cat action tgt s.t it stacks or else it dont make sense
-            if acc_action is None:
-                acc_action = action
-            else:
-                acc_action[:3] += action[:3]
-                acc_action[3] = action[3]
             
-            action_obj = self._recover_action_obj(acc_action)
+            action_obj = self._recover_action_obj(action)
             action_graph = ActionGraph(curr_graph, action_obj)
 
             predicted_graph = action_graph.predicted_graph

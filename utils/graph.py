@@ -232,12 +232,12 @@ class LocalGraph:
     def _init_edges(self):
         edges = []
 
-        # first link all object_nodes to agent_nodes 1 direction
+        # first link all agent_nodes to object_nodes 1 direction
         for agent_node in self.agent_nodes:
             for obj_node in self.object_nodes:
-                edges.append(Edge(source = obj_node, dest = agent_node, edge_type = EdgeType.OBJECT_TO_AGENT))
+                edges.append(Edge(source = agent_node, dest = obj_node, edge_type = EdgeType.OBJECT_TO_AGENT))
 
-        # then link inter agent nodes (i dont thinke we interlink agent nodes)
+        # then link inter agent nodes 
         for i in range(len(self.agent_nodes)):
             for j in range(len(self.agent_nodes)):
                 if i != j:
@@ -361,7 +361,9 @@ class DemoGraph:
         for curr_node in curr_graph_agent_nodes:
             for next_node in next_graph_agent_nodes:
                 if curr_node.tag == next_node.tag:
-                    edge = Edge(source = curr_node, dest = next_node, edge_type=EdgeType.AGENT_DEMO_AGENT)
+                    # next node to curr node so info can flow into the next node
+                    edge = Edge(source = next_node, dest = curr_node, edge_type=EdgeType.AGENT_DEMO_AGENT)
+                    
                     # self.edge_idx_dict[edge] = (self.node_idx_dict[curr_node], self.node_idx_dict[next_node])
                     self.temporal_edges.add(edge)
                     
@@ -408,10 +410,12 @@ class ContextGraph:
         curr_graph_agent_nodes = self.current_graph.agent_nodes
         demo_graph_agent_nodes = demo_graph.get_temporal_nodes()
 
+        # link curr_node to demo_node
         for demo_node in demo_graph_agent_nodes:
             for curr_node in curr_graph_agent_nodes:    
                 if curr_node.tag == demo_node.tag:
-                    edge = Edge(source = demo_node, dest = curr_node, edge_type=EdgeType.AGENT_COND_AGENT)
+                    edge = Edge(source = curr_node, dest = demo_node, edge_type=EdgeType.AGENT_COND_AGENT)
+                    # edge = Edge(source = demo_node, dest = curr_node, edge_type=EdgeType.AGENT_COND_AGENT)
                     self.temporal_edges.add(edge)
                     # self.edge_idx_dict[edge] = (self.node_idx_dict[demo_node], self.node_idx_dict[curr_node])
 
@@ -475,7 +479,9 @@ class ActionGraph:
         for curr_node in curr_graph_agent_nodes:
             for pred_node in predicted_graph_agent_nodes:
                 if pred_node.tag == curr_node.tag:
-                    edge = Edge(source = curr_node, dest = pred_node, edge_type=EdgeType.AGENT_TIME_ACTION_AGENT)
+                    # pred_node to curr_node
+                    edge = Edge(source = pred_node, dest = curr_node, edge_type=EdgeType.AGENT_TIME_ACTION_AGENT)
+                    # edge = Edge(source = curr_node, dest = pred_node, edge_type=EdgeType.AGENT_TIME_ACTION_AGENT)
                     self.action_edges.add(edge)
                     # self.edge_idx_dict[edge] = (self.node_idx_dict[curr_node], self.node_idx_dict[pred_node])
 

@@ -154,14 +154,23 @@ class Player:
     #  |   /
     #  |  /
     #  * (back-right)
-    def get_keypoints(self):
 
-        return {
-            'center' : (self.x, self.y),
-            'front' : (self.x + self.size, self.y),
-            'back-left' : (self.x - self.size, self.y - self.size),
-            'back-right' : (self.x + self.size, self.y - self.size),
-        }
+
+    def get_keypoints(self, frame = 'self'):
+        if frame == 'world':
+            return {
+                'center' : (self.x, self.y),
+                'front' : (self.x + self.size, self.y),
+                'back-left' : (self.x - self.size, self.y - self.size),
+                'back-right' : (self.x - self.size, self.y + self.size),
+            }
+        else:
+            return {
+                'center' : (0,0),
+                'front' : (self.size, 0),
+                'back-left' : (-self.size, -self.size),
+                'back-right' : (-self.size, self.size),
+            }   
 
     def draw(self, screen):
         # Draw player as a triangle pointing in the direction it's facing
@@ -704,7 +713,6 @@ class PseudoGame:
         self.actions = []
         self._sample_waypoints()
 
-
     # this function does a run of the pseudogame and returns the observations in pointclouds 
     # it will be a list of 'frames' at each timepoints
     def run(self):
@@ -724,8 +732,8 @@ class PseudoGame:
         self.clock.tick(60)
         self._end_game()
     
-    def get_player_keypoints(self):
-        return self.player.get_keypoints()
+    def get_player_keypoints(self, frame = 'self'):
+        return self.player.get_keypoints(frame=frame)
 
 
     def get_actions(self):
