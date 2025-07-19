@@ -735,7 +735,6 @@ class PseudoGame:
     def get_player_keypoints(self, frame = 'self'):
         return self.player.get_keypoints(frame=frame)
 
-
     def get_actions(self):
         return self.actions
 

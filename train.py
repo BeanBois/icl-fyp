@@ -93,7 +93,7 @@ class PseudoDemoGenerator:
 
     
 
-class Trainer:
+class Trainer: 
 
     def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, device='cuda'):
         self.agent = agent

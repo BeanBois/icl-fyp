@@ -179,6 +179,7 @@ class InstantPolicyAgent(nn.Module):
             nn.Linear(self.hidden_dim, self.node_embd_dim,device=self.device),
             nn.GELU(),
             nn.Linear(self.node_embd_dim,1,device=self.device),
+            nn.ReLU(),
         )
         
 
@@ -359,7 +360,6 @@ class InstantPolicyAgent(nn.Module):
         
         return T
 
-
     # for large displacement, project to SE2 straight up, no need for se2
     # our task involves 
     def _get_noisy_actions(self, clean_actions, timesteps, mode = 'large'):
@@ -371,6 +371,15 @@ class InstantPolicyAgent(nn.Module):
 
 
         # need to read the 2023 Ed paper for this
+        # To calculate a set of transformations Tnoise we use a combination of Langevin Dynamics (described
+        # in Section C.4) and uniform sampling at different scales. We start the training with uniform sam-
+        # pling in ranges of [−0.8,0.8] metres for translation and [−π,π] radians for rotation. After Nnumber
+        # of optimisation steps (10K in our implementation), we incorporate Langevin Dynamics sampling
+        # which we perform every 5 optimisation steps. During this phase, we also reduce the uniform sam-
+        # pling range to [−0.1,0.1] metres for translation and [−π/4,π/4] radians for rotation. Although
+        # creating negative samples using only Langevin Dynamics is sufficient, in practice, we found that
+        # our described sampling strategy leads to faster convergence and more stable training for this specific
+        # application of energy-based models.
         if mode == 'large':
             # project to SE2
             SE2_action = self._actions_to_SE2(moving_actions)
@@ -379,8 +388,11 @@ class InstantPolicyAgent(nn.Module):
             SE2_noise = torch.randn_like(SE2_action)
             binary_noise = torch.rand_like(binary_actions)
 
+            # reshape alpha_cumprod for SE2 
+            alpha_cumprod_t_reshaped = alpha_cumprod_t.view(-1, 1, 1)  # Make it (batch, 1, 1)
+            
             # add noise acc to schedule
-            noisy_se2 = torch.sqrt(alpha_cumprod_t) * SE2_action + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
+            noisy_se2 = torch.sqrt(alpha_cumprod_t_reshaped) * SE2_action + torch.sqrt(1 - alpha_cumprod_t_reshaped) * SE2_noise
             noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
 
             # convert back to actions for graph construction
@@ -391,6 +403,7 @@ class InstantPolicyAgent(nn.Module):
             full_noise = torch.cat([movement_noise, binary_noise], dim=-1)
             return full_noisy_actions, full_noise.float()
 
+        # small displacement treatment
         else:
             # first project action to SE(2), then to se(2)
             SE2_actions = self._actions_to_SE2(moving_actions)
@@ -1053,6 +1066,7 @@ class HeteroAttentionLayer(nn.Module):
         final_X = w1f
 
     
+        # TODO: maybe can parrellelise this
         # then iterate thru neighbours with adj matrix to get attention score and neigh(i) agg for nodes and edges
         # from adj matrix, we know which node and edge to select 
         for node_type, node_feature_matrix in w1f.items():
