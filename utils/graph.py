@@ -19,6 +19,8 @@ from tasks.twoD.game import Action, PlayerState # use when running from rwd
 
 
 
+
+# change to AGENT, ATTRACTORS AND AVOIDERS 
 class NodeType(Enum):
     AGENT = b'000'
     EDIBLE = b'001'
@@ -72,11 +74,11 @@ class Edge:
     #     return [self.weight, self.position_feature]
     
 
-# TODO : redo how nodes are initialised
+
 # instead of hard feature sets like self.pos 
 # store them in like a matrix or something node.features 
     
-# TODO : also get_edges function are all wrong sadge minor refactoring needed
+
 class Node:
     def __init__(self,pos,time):
         self.pos = pos
@@ -136,7 +138,7 @@ class GoalNode(Node):
     # def get_features(self):
     #     return np.array([self.pos[0], self.pos[1]]) 
 
-# TODO : change DST of node and edges to sets. Eg in Context Graph
+
 
 # This Local Graph represents a screenshot of the pointcloud at a particular timestep
 class LocalGraph:
@@ -190,7 +192,7 @@ class LocalGraph:
     def _init_nodes(self, agent_pos, point_clouds):    
         # init agent nodes
         AGENT_TAGS = [AgentNodeTag.EDGE1, AgentNodeTag.EDGE2, AgentNodeTag.EDGE3, AgentNodeTag.CENTER]
-        # TODO update this 
+
         agent_nodes = [AgentNode(coord, self.timestep, self.agent_orientation, tag) for (coord, tag) in zip(agent_pos,AGENT_TAGS)]
 
 
@@ -427,7 +429,7 @@ class ContextGraph:
                 # self.edge_idx_dict[edge] = (self.node_idx_dict[edge.source], self.node_idx_dict[edge.dest])
     
 
-# TODO : refactor action here 
+
 # can just take curr graph instead of Context Graph
 #  we change this to take curr graph now
 class ActionGraph:

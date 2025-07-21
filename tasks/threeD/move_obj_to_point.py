@@ -71,7 +71,7 @@ class MyRobot(object):
 
 
 class Task():
-    # TODO RETURN observations of point clouds and gripper pose
+
     def __init__(self, scene, max_step = 10):
         self.pr = PyRep()
         self.timestep = 0

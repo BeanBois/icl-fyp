@@ -95,7 +95,7 @@ class PseudoDemoGenerator:
 
 class Trainer: 
 
-    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, device='cuda'):
+    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, batch_size = 10,device='cuda'):
         self.agent = agent
         self.device = device 
         self.data_generator = PseudoDemoGenerator(
@@ -105,46 +105,77 @@ class Trainer:
                 num_sampled_pointclouds=num_sampled_pointclouds,
                 device=self.device
                 )
-  
+        self.batch_size = batch_size
         self.modes = [mode for mode in PseudoGameMode if mode != PseudoGameMode.RANDOM]
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
         self.optimizer = optim.AdamW(agent.parameters(), lr=1e-5)
 
-    
     def train_step(self):
-        mode = self.modes[random.randint(0,len(self.modes)-1)]
-        curr_obs, context, clean_actions = self.data_generator.get_sample(mode) # clean action is a tensor
-        
-        # actual noise should be a N x num-agent-nodes x 2 rep noise in positions of each agent node caused by actions 
-        # to get actual noise from noisy actions: either
-            # 1) treat noise as future-obs - predicted-action-graph-pos ( here then future obs need to be part of arg)
-            # 2) extract noise using k.p, clean-actions and noisy actions (doable lmao, put this in agent code)
-                # we have noise added to clean actions (noisy-actions - clean-actions) T_delta
-                # with T_delta we can 
-                # no we do this in train.py actually
-                # with raw_noise being noise added to actions 
-                # we process this raw_noise to produce noisy-positions with agent kp
-                # taking center as reference point (so for this noise added is literally just 2d-space the T_delta)
-                # then use other kps (wrt center) to calculate noise added to those 
-        
-        predicted_noise, raw_noise = self.agent(
-            curr_obs,
-            context,
-            clean_actions
-        )
-        agent_obj_keypoints = self.data_generator.get_agent_keypoints() # add this in data_generator 
-
-        actual_noise = self._get_position_noise(raw_noise, agent_obj_keypoints)
-
-        # then MSE lost for 
-        loss = nn.MSELoss()(predicted_noise, actual_noise)
-
-        # backpropagation
         self.optimizer.zero_grad()
-        loss.backward()
+        total_loss = 0.0
+        
+        # Process each sample in the batch
+        for i in range(self.batch_size):
+            mode = self.modes[random.randint(0, len(self.modes)-1)]
+            curr_obs, context, clean_actions = self.data_generator.get_sample(mode)
+            
+            predicted_noise, raw_noise = self.agent(
+                curr_obs,
+                context,
+                clean_actions
+            )
+            
+            agent_obj_keypoints = self.data_generator.get_agent_keypoints()
+            actual_noise = self._get_position_noise(raw_noise, agent_obj_keypoints)
+            
+            # Compute loss for this sample
+            loss = nn.MSELoss()(predicted_noise, actual_noise)
+            
+            # Scale loss by batch size and accumulate gradients
+            scaled_loss = loss / self.batch_size
+            scaled_loss.backward()
+            
+            total_loss += loss.item()
+        
+        # Single optimization step after accumulating all gradients
         self.optimizer.step()
         
-        return loss.item()
+        return total_loss / self.batch_size
+
+    # def train_step(self):
+    #     mode = self.modes[random.randint(0,len(self.modes)-1)]
+    #     curr_obs, context, clean_actions = self.data_generator.get_sample(mode) # clean action is a tensor
+        
+    #     # actual noise should be a N x num-agent-nodes x 2 rep noise in positions of each agent node caused by actions 
+    #     # to get actual noise from noisy actions: either
+    #         # 1) treat noise as future-obs - predicted-action-graph-pos ( here then future obs need to be part of arg)
+    #         # 2) extract noise using k.p, clean-actions and noisy actions (doable lmao, put this in agent code)
+    #             # we have noise added to clean actions (noisy-actions - clean-actions) T_delta
+    #             # with T_delta we can 
+    #             # no we do this in train.py actually
+    #             # with raw_noise being noise added to actions 
+    #             # we process this raw_noise to produce noisy-positions with agent kp
+    #             # taking center as reference point (so for this noise added is literally just 2d-space the T_delta)
+    #             # then use other kps (wrt center) to calculate noise added to those 
+        
+    #     predicted_noise, raw_noise = self.agent(
+    #         curr_obs,
+    #         context,
+    #         clean_actions
+    #     )
+    #     agent_obj_keypoints = self.data_generator.get_agent_keypoints() # add this in data_generator 
+
+    #     actual_noise = self._get_position_noise(raw_noise, agent_obj_keypoints)
+
+    #     # then MSE lost for 
+    #     loss = nn.MSELoss()(predicted_noise, actual_noise)
+
+    #     # backpropagation
+    #     self.optimizer.zero_grad()
+    #     loss.backward()
+    #     self.optimizer.step()
+        
+    #     return loss.item()
    
     def train_epoch(self, num_steps_per_epoch = 100):
         total_loss = 0.0
@@ -236,6 +267,7 @@ if __name__ == "__main__":
                       max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
                       min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
                       num_sampled_pointclouds=CONFIGS['NUM_SAMPLED_POINTCLOUDS'],
+                      batch_size=CONFIGS['BATCH_SIZE']
                       )
     
     

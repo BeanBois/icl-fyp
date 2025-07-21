@@ -445,7 +445,7 @@ class InstantPolicyAgent(nn.Module):
         
         return torch.cat([translation, rotation], dim=-1)
 
-
+# TODO: add Pointnet++ and SA layer! for scene node embedding
 
 
 def SinCosEdgeEmbedding(source, dest, device, D=3):
@@ -462,6 +462,7 @@ def SinCosEdgeEmbedding(source, dest, device, D=3):
 
 
 
+# add SA layer here
 class InstantPolicy(nn.Module):
     
     def __init__(self, 
@@ -504,6 +505,7 @@ class InstantPolicy(nn.Module):
 
     # εθ(Gk) = ψ(G(σ(Ga_l),ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N)))
     # might be going abuot it the wrong way. bottom up > top bottom
+    # TODO: SA here
     def _embed_local_graph(self,graph):
 
         # Embed Nodes first
@@ -872,7 +874,6 @@ class PhiNN(nn.Module):
 
         return z2
 
-
 # propagates information to nodes in the graph representing the actions
 # 2 edgetypes involved : AGENT_TIME_ACTION_AGENT (curr graph to predicted action graph), 
 # AGENT_DEMOACTION_AGENT (connect final frame of demo to predicted action graph)? (not used for now)
@@ -926,6 +927,8 @@ class PsiNN(nn.Module):
         
         return z2
 
+
+
 # think about this hmm
 class ChiNN(nn.Module):
 
@@ -953,6 +956,8 @@ class ChiNN(nn.Module):
             node_type=self.node_types
         )
 
+
+# Aux building blocks
 class ResidualBlock(nn.Module):
 
     def __init__(self, size, node_type, device):
@@ -1108,10 +1113,57 @@ class HeteroAttentionLayer(nn.Module):
 
 
 
+def FPSA(point_clouds):
+    selected_indices = []
+    initial_coord = random.randint(0, len(coords) - 1)
+    selected_indices.append(initial_coord)
 
+    # then perform FPSA to collect M points
+    for _ in range(self.num_sampled_points-1):
+        if len(selected_indices) >= len(coords):
+            break
 
-
-
-
+        selected_coords = coords[selected_indices]
+    
+        # Calculate minimum distance from each unselected point to nearest selected point
+        max_min_distance = -1
+        best_idx = -1
         
+        for i, coord in enumerate(coords):
+            if i in selected_indices:
+                continue
+                
+            # Calculate distances to all selected points
+            distances = np.linalg.norm(selected_coords - coord, axis=1)
+            min_distance = np.min(distances)
+            
+            # Keep track of point with maximum minimum distance
+            if min_distance > max_min_distance:
+                max_min_distance = min_distance
+                best_idx = i
+        
+        if best_idx != -1:
+            selected_indices.append(best_idx)
+
+
+    pass 
+
+# the SA layers has 3 components 
+    # Sampling layer: FPSA (should move FPSA here)
+    # Grouping Layer: 
+class SetAbstractionLayer(nn.Module):
+
+    def __init__(self, dim_size):
+        super(SetAbstractionLayer, self).__init__()
+
+        self.sampling_layer = FPSA
+
+        pass 
+
+    def forawrd(self, pcs):
+        pass 
+
+
+
+
         

@@ -28,6 +28,7 @@ CONFIGS = {
     'SAVE_MODEL' : True,
     'MODEL_FILE_PATH' :  "instant_policy.pth",
     'TRAINING_MAX_TRANSLATION' : 500, # WIDTH^2 + HEIGHT^2 SQRT
+    'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 50,

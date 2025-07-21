@@ -504,6 +504,8 @@ class GameInterface:
         self.mode = mode
     # we do furthest point sampling algorithm to retrieve a cloud of point clouds
     # These sampled ppoint clouds is then used to create a graph representation 
+
+    # remove FPSA form here and just return pc
     def get_obs(self):
         agent_pos = self._get_agent_pos()
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
@@ -519,6 +521,7 @@ class GameInterface:
         dense_point_clouds = raw_dense_point_clouds[valid_points]
         coords = raw_coords[valid_points]
 
+        # return by here (SA layer inmplementation)
         # To simulate FPSA, we randomly select an initial point from coords ranging from p in (SCREEN_WIDTH X SCREEN_HEIGHT)  
         selected_indices = []
         initial_coord = random.randint(0, len(coords) - 1)
@@ -671,7 +674,7 @@ class PseudoGameMode(Enum):
     RANDOM = 4 
 
 
-
+# TODO: change it s.t it can parallelise multiple runs for faster data generation
 # pseudogame used to generate a pseudo demo
 class PseudoGame:
 
