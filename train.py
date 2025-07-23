@@ -79,6 +79,7 @@ class PseudoDemoGenerator:
             
     def _get_ground_truth(self,mode):
         pseudo_demo = self._run_game(mode)
+        # need to change here too
         true_obs = pseudo_demo.observations
         actions = torch.tensor(pseudo_demo.get_actions(), dtype=torch.float, device = self.device)          
         actions = self._process_actions(actions) # need to cat action tgt  s.t it stacks
@@ -124,6 +125,7 @@ class Trainer:
                 context,
                 clean_actions
             )
+            breakpoint()
             
             agent_obj_keypoints = self.data_generator.get_agent_keypoints()
             actual_noise = self._get_position_noise(raw_noise, agent_obj_keypoints)

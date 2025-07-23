@@ -592,6 +592,7 @@ class ObjectGraph:
 
         pass
 
+# TODO : SA changes here
 def make_localgraph(obs):
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']

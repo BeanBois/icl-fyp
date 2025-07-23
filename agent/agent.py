@@ -43,8 +43,6 @@ Modules each have 5 kinds of weights:
 import torch
 import torch.nn as nn
 
-from agent.nn_components import HeterogeneousGraphTransformer
-
 import numpy as np
 from enum import Enum
 
@@ -134,6 +132,7 @@ from typing import Dict, List, Tuple
     #     return torch.cat([translation, rotation], dim=-1)
 
 """
+
 class InstantPolicyAgent(nn.Module):
 
     def __init__(self,
@@ -1113,57 +1112,4 @@ class HeteroAttentionLayer(nn.Module):
 
 
 
-def FPSA(point_clouds):
-    selected_indices = []
-    initial_coord = random.randint(0, len(coords) - 1)
-    selected_indices.append(initial_coord)
-
-    # then perform FPSA to collect M points
-    for _ in range(self.num_sampled_points-1):
-        if len(selected_indices) >= len(coords):
-            break
-
-        selected_coords = coords[selected_indices]
-    
-        # Calculate minimum distance from each unselected point to nearest selected point
-        max_min_distance = -1
-        best_idx = -1
-        
-        for i, coord in enumerate(coords):
-            if i in selected_indices:
-                continue
-                
-            # Calculate distances to all selected points
-            distances = np.linalg.norm(selected_coords - coord, axis=1)
-            min_distance = np.min(distances)
-            
-            # Keep track of point with maximum minimum distance
-            if min_distance > max_min_distance:
-                max_min_distance = min_distance
-                best_idx = i
-        
-        if best_idx != -1:
-            selected_indices.append(best_idx)
-
-
-    pass 
-
-# the SA layers has 3 components 
-    # Sampling layer: FPSA (should move FPSA here)
-    # Grouping Layer: 
-class SetAbstractionLayer(nn.Module):
-
-    def __init__(self, dim_size):
-        super(SetAbstractionLayer, self).__init__()
-
-        self.sampling_layer = FPSA
-
-        pass 
-
-    def forawrd(self, pcs):
-        pass 
-
-
-
-
-        
+ 

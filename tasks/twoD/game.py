@@ -476,6 +476,7 @@ class GameMode(Enum):
 
 
 # make GameInteraface s.t an action can be done with Translation + Rotation matrix
+# TODO: change get_obs function
 class GameInterface:
 
     def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10, mode = GameMode.DEMO_MODE):
@@ -508,75 +509,42 @@ class GameInterface:
     # remove FPSA form here and just return pc
     def get_obs(self):
         agent_pos = self._get_agent_pos()
+
+        agent_state = self.game.player.state # works now but maybe refactor
+
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
         raw_dense_point_clouds = self.game.get_screen_pixels()
         raw_coords = np.array([[(x,y) for y in range(self.game.screen_height) ]  for x in range(self.game.screen_width)])
-
+        
         # To ensure that only objects point clouds are picked up, we remove all white pixels and agent pixels
         mask = ~np.all((raw_dense_point_clouds == [255, 255, 255]) | 
                     (raw_dense_point_clouds == [128, 0, 128]) |
-                    (raw_dense_point_clouds == [0, 0, 255])
+                    (raw_dense_point_clouds == [0, 0, 255]) |
+                    (raw_dense_point_clouds != [128, 0 ,128]) | # ignore agent pc
+                    (raw_dense_point_clouds != [0, 0 ,255])  # ignore agent pc
                     , axis=2)
+        
+
         valid_points = np.where(mask)
         dense_point_clouds = raw_dense_point_clouds[valid_points]
         coords = raw_coords[valid_points]
 
-        # return by here (SA layer inmplementation)
-        # To simulate FPSA, we randomly select an initial point from coords ranging from p in (SCREEN_WIDTH X SCREEN_HEIGHT)  
-        selected_indices = []
-        initial_coord = random.randint(0, len(coords) - 1)
-        selected_indices.append(initial_coord)
-
-        # then perform FPSA to collect M points
-        for _ in range(self.num_sampled_points-1):
-            if len(selected_indices) >= len(coords):
-                break
-
-            selected_coords = coords[selected_indices]
-        
-            # Calculate minimum distance from each unselected point to nearest selected point
-            max_min_distance = -1
-            best_idx = -1
-            
-            for i, coord in enumerate(coords):
-                if i in selected_indices:
-                    continue
-                    
-                # Calculate distances to all selected points
-                distances = np.linalg.norm(selected_coords - coord, axis=1)
-                min_distance = np.min(distances)
-                
-                # Keep track of point with maximum minimum distance
-                if min_distance > max_min_distance:
-                    max_min_distance = min_distance
-                    best_idx = i
-            
-            if best_idx != -1:
-                selected_indices.append(best_idx)
-
         # Categorise/Segment M points according to colour (sidestepping geometric encoder)
-        selected_coords = coords[selected_indices]
-        selected_colors = dense_point_clouds[selected_indices]
+
         color_segments = defaultdict(list)
-        agent_state = None
-        if BLUE in selected_colors:
-            agent_state = 'not-eating'
-        elif PURPLE in selected_colors:
-            agent_state = 'eating'
+
         
-        for i, (coord, color) in enumerate(zip(selected_coords, selected_colors)):
+        for i, (coord, color) in enumerate(zip(coords, dense_point_clouds)):
             # Convert RGB to a hashable tuple for grouping
             # color_key = tuple(color.astype(int))
             color_key = None
             color = tuple(color)
-            if color == BLACK or color == YELLOW:
-                color_key = 'goal'
-            elif color == GREEN:
-                color_key = 'edible'
+            if color == BLACK or color == YELLOW or color == GREEN:
+                color_key = 'attractor'
             elif color == RED:
                 color_key = 'obstacle'
             else:
-                color_key = 'unknown'
+                continue
             color_segments[color_key].append({
                 'coord': coord,
                 'index': i,
@@ -721,6 +689,7 @@ class PseudoGame:
     def run(self):
         self.draw()
         obs = self.get_obs()
+        # TODO : CHANGE HERE
         self.observations.append(obs)
         while self.num_waypoints_used > self.t:
             self.t += 1
@@ -743,6 +712,8 @@ class PseudoGame:
 
     def get_obs(self):
         agent_pos = self._get_agent_pos()
+        agent_state = self.player.state
+
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
         raw_dense_point_clouds = self._get_screen_pixels()
         raw_coords = np.array([[(x,y) for y in range(self.screen_height) ]  for x in range(self.screen_width)])
@@ -751,68 +722,26 @@ class PseudoGame:
         mask = ~np.all((raw_dense_point_clouds == [255, 255, 255]) | 
                     (raw_dense_point_clouds == [128, 0, 128]) |
                     (raw_dense_point_clouds == [0, 0, 255]) |
-                    (raw_dense_point_clouds == [125, 125, 125]) 
+                    (raw_dense_point_clouds == [125, 125, 125]) |   
+                    (raw_dense_point_clouds != [128, 0 ,128]) | # ignore agent pc
+                    (raw_dense_point_clouds != [0, 0 ,255])  # ignore agent pc
                     , axis=2)
         valid_points = np.where(mask)
         dense_point_clouds = raw_dense_point_clouds[valid_points]
         coords = raw_coords[valid_points]
-
-        # To simulate FPSA, we randomly select an initial point from coords ranging from p in (SCREEN_WIDTH X SCREEN_HEIGHT)  
-        selected_indices = []
-        initial_coord = random.randint(0, len(coords) - 1)
-
-        selected_indices.append(initial_coord)
-
-        # then perform FPSA to collect M points
-        for _ in range(self.num_sampled_point_clouds-1):
-            if len(selected_indices) >= len(coords):
-                break
-
-            selected_coords = coords[selected_indices]
-        
-            # Calculate minimum distance from each unselected point to nearest selected point
-            max_min_distance = -1
-            best_idx = -1
-            
-            for i, coord in enumerate(coords):
-                if i in selected_indices:
-                    continue
-                    
-                # Calculate distances to all selected points
-                distances = np.linalg.norm(selected_coords - coord, axis=1)
-                min_distance = np.min(distances)
-                
-                # Keep track of point with maximum minimum distance
-                if min_distance > max_min_distance:
-                    max_min_distance = min_distance
-                    best_idx = i
-            
-            if best_idx != -1:
-                selected_indices.append(best_idx)
-
-        # Categorise/Segment M points according to colour (sidestepping geometric encoder)
-        selected_coords = coords[selected_indices]
-        selected_colors = dense_point_clouds[selected_indices]
         color_segments = defaultdict(list)
-        agent_state = None
-        if BLUE in selected_colors:
-            agent_state = 'not-eating'
-        elif PURPLE in selected_colors:
-            agent_state = 'eating'
         
-        for i, (coord, color) in enumerate(zip(selected_coords, selected_colors)):
+        for i, (coord, color) in enumerate(zip(coords, dense_point_clouds)):
             # Convert RGB to a hashable tuple for grouping
             # color_key = tuple(color.astype(int))
             color_key = None
             color = tuple(color)
-            if color == BLACK or color == YELLOW:
-                color_key = 'goal'
-            elif color == GREEN:
-                color_key = 'edible'
+            if color == BLACK or color == YELLOW or color == GREEN:
+                color_key = 'attractor'
             elif color == RED:
                 color_key = 'obstacle'
             else:
-                color_key = 'unknown'
+                continue
             color_segments[color_key].append({
                 'coord': coord,
                 'index': i,
@@ -824,7 +753,7 @@ class PseudoGame:
             'agent-pos' : agent_pos,
             'agent-state' : agent_state,
             'agent-orientation' : self.player.angle,
-            # 'done': self.running,
+            'done' : self.t >= self.num_waypoints_used,
             'time' : self.t
         }
 
