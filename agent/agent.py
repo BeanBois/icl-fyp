@@ -53,6 +53,8 @@ from utils.graph import DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType
 from tasks.twoD.game import Action# use when running from rwd
 
 from typing import Dict, List, Tuple
+
+from geometry_encoder import GeometryEncoder2D 
 """
 # ok unless we make actions stack this dont make sense hmm
 # need to produce per node denoising directions
@@ -444,9 +446,9 @@ class InstantPolicyAgent(nn.Module):
         
         return torch.cat([translation, rotation], dim=-1)
 
+
+
 # TODO: add Pointnet++ and SA layer! for scene node embedding
-
-
 def SinCosEdgeEmbedding(source, dest, device, D=3):
     num_feature = source.shape[0]
     embedding = torch.zeros((num_feature, 2 * D), device=device)
@@ -491,10 +493,7 @@ class InstantPolicy(nn.Module):
         )
         self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim, device=self.device)
         self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
-        self.object_embedders = nn.ModuleDict({
-            node_type.name : nn.Embedding(1,self.node_embd_dim, device=self.device)
-            for node_type in NodeType if node_type != NodeType.AGENT
-        }) # 1 embedder for each node type except for agent nodes since they share similar geometry
+        self.geometry_encoder = GeometryEncoder2D(output_dim=self.node_embd_dim)
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components
@@ -576,12 +575,24 @@ class InstantPolicy(nn.Module):
                 curr_obs, # 1 
                 provided_demos, # list of demos, whereby each demo contains a list of observation,
                 actions, # list of actions?
-                # agent_keypoints, # dict of keypoints str : vector
                 ):
         curr_graph_agent_node_embeddings_dict = dict()
         # # σ(Gt_l)
-        curr_graph = make_localgraph(curr_obs)
-        # embed current nodes and transform
+
+
+
+        ###### ideas #####
+        # what if we build a scale network here? so we have the centers connected to each other
+        ######
+
+
+        # need to pass thru SA layers before nodes can be used to make local graph 
+        curr_graph = make_localgraph(curr_obs) 
+        
+        
+        
+        # TODO : SA layer so _embed_loca_grpah now replaced with self.geometry_encoder
+        # embed current nodes and transform 
         curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_E, edge_idx_dict, curr_graph_A = self._embed_local_graph(curr_graph)
         
         rho_current = self.rho(curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_A, curr_graph_E, edge_idx_dict)
@@ -597,6 +608,7 @@ class InstantPolicy(nn.Module):
         for demo in provided_demos:
             graph_seq = []
             for obs in demo:
+                # TODO : change here too 
                 g = make_localgraph(obs)
                 g_X, node_idx_dict_by_type, g_E, edge_idx_dict, g_A = self._embed_local_graph(g)
                 _rho = self.rho(g_X, node_idx_dict_by_type, g_A, g_E, edge_idx_dict)

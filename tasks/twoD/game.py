@@ -539,8 +539,10 @@ class GameInterface:
             # color_key = tuple(color.astype(int))
             color_key = None
             color = tuple(color)
-            if color == BLACK or color == YELLOW or color == GREEN:
-                color_key = 'attractor'
+            if color == BLACK or color == YELLOW:
+                color_key = 'goal'
+            elif color == GREEN:
+                color_key = 'edible'
             elif color == RED:
                 color_key = 'obstacle'
             else:
@@ -729,27 +731,10 @@ class PseudoGame:
         valid_points = np.where(mask)
         dense_point_clouds = raw_dense_point_clouds[valid_points]
         coords = raw_coords[valid_points]
-        color_segments = defaultdict(list)
-        
-        for i, (coord, color) in enumerate(zip(coords, dense_point_clouds)):
-            # Convert RGB to a hashable tuple for grouping
-            # color_key = tuple(color.astype(int))
-            color_key = None
-            color = tuple(color)
-            if color == BLACK or color == YELLOW or color == GREEN:
-                color_key = 'attractor'
-            elif color == RED:
-                color_key = 'obstacle'
-            else:
-                continue
-            color_segments[color_key].append({
-                'coord': coord,
-                'index': i,
-                'color': color
-            })        
 
         return {
-            'point-clouds': dict(color_segments),
+            'point-clouds': dense_point_clouds,
+            'coords' : coords,
             'agent-pos' : agent_pos,
             'agent-state' : agent_state,
             'agent-orientation' : self.player.angle,

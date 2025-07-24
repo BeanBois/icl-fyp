@@ -23,7 +23,7 @@ from tasks.twoD.game import Action, PlayerState # use when running from rwd
 # change to AGENT, ATTRACTORS AND AVOIDERS 
 class NodeType(Enum):
     AGENT = b'000'
-    EDIBLE = b'001'
+    ATTRACTOR = b'001'
     OBSTACLE = b'010'
     GOAL = b'100'
 
@@ -46,38 +46,23 @@ class EdgeType(Enum):
     # AGENT_RELCOND_AGENT =     b'100000000000' # unused for now
 
 
-def SinCosEdgeEmbedding(source, dest, D = 3):
 
-    num_feature = source.shape[0]
-    embedding = np.zeros((num_feature, 2 * D))
-    diff = dest - source 
-    aux_func = lambda d : np.array([np.sin(2**d  * np.pi * diff), np.cos(2**d  * np.pi * diff)]) 
-
-    for d in range(D):
-        embedding[:,d:d+2] =  aux_func(d)
-    return embedding
 
 
 class Edge:
 
-    def __init__(self, source, dest, edge_type,  
-                #  embedding_fucntion = SinCosEdgeEmbedding, 
-                 weight = 1):
+    def __init__(self, source, dest, edge_type, weight = 1):
         self.source = source
         self.dest = dest
         self.weight = weight 
-        # self.position_feature = embedding_fucntion(source.pos, dest.pos)
         self.type = edge_type
         self.rel_pos = dest.pos - source.pos 
     
-    # def get_features(self):
-    #     return [self.weight, self.position_feature]
     
 
 
 # instead of hard feature sets like self.pos 
-# store them in like a matrix or something node.features 
-    
+# store them in like a matrix or something node.features  
 
 class Node:
     def __init__(self,pos,time):
@@ -111,7 +96,7 @@ class EdibleNode(Node):
 
     def __init__(self, pos,time):
         super().__init__(pos,time)
-        self.type = NodeType.EDIBLE
+        self.type = NodeType.ATTRACTOR
         self.eaten = False 
     
     def set_eaten(self):
@@ -239,21 +224,23 @@ class LocalGraph:
             for obj_node in self.object_nodes:
                 edges.append(Edge(source = agent_node, dest = obj_node, edge_type = EdgeType.OBJECT_TO_AGENT))
 
+        # not needed
         # then link inter agent nodes 
-        for i in range(len(self.agent_nodes)):
-            for j in range(len(self.agent_nodes)):
-                if i != j:
-                    edges.append(
-                        Edge(source = self.agent_nodes[i], dest = self.agent_nodes[j], edge_type = EdgeType.AGENT_TO_AGENT)
-                      )
+        # for i in range(len(self.agent_nodes)):
+        #     for j in range(len(self.agent_nodes)):
+        #         if i != j:
+        #             edges.append(
+        #                 Edge(source = self.agent_nodes[i], dest = self.agent_nodes[j], edge_type = EdgeType.AGENT_TO_AGENT)
+        #               )
 
-        # then link inter object node
-        for i in range(len(self.object_nodes)):
-            for j in range(len(self.object_nodes)):
-                if i != j:
-                    edges.append(
-                        Edge(source = self.object_nodes[i], dest = self.object_nodes[j], edge_type = EdgeType.OBJECT_TO_OBJECT)
-                    )
+        # dont need this the occ net implicitly does this 
+        # # then link inter object node
+        # for i in range(len(self.object_nodes)):
+        #     for j in range(len(self.object_nodes)):
+        #         if i != j:
+        #             edges.append(
+        #                 Edge(source = self.object_nodes[i], dest = self.object_nodes[j], edge_type = EdgeType.OBJECT_TO_OBJECT)
+        #             )
 
         self.edges = edges
 
