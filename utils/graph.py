@@ -490,6 +490,7 @@ class ActionGraph:
         predicted_agent_nodes = []
         for agent_node in predicted_graph.agent_nodes:
             # apply transformations and rotations
+
             predicted_agent_node = self._apply_action_to_agent_node(agent_node)
             predicted_agent_nodes.append(predicted_agent_node)
 
@@ -528,6 +529,7 @@ class ActionGraph:
 
 
     def _apply_action_to_agent_node(self, agent_node):
+
         # complete this funciton 
         agent_node.pos = agent_node.pos + self.moving_action
         agent_node.orientation += self.action.rotation
@@ -579,7 +581,7 @@ class ObjectGraph:
 
         pass
 
-# TODO : SA changes here
+# unused, for reference only
 def make_localgraph(obs):
     point_clouds = obs['point-clouds']
     agent_pos = obs['agent-pos']

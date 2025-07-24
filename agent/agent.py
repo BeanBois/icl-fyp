@@ -47,14 +47,15 @@ import numpy as np
 from enum import Enum
 
 # from ..utils.graph import DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType, make_localgraph # use when running this file
-from utils.graph import DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType, make_localgraph # use when running from rwd
+from utils.graph import LocalGraph, DemoGraph, ContextGraph, ActionGraph, EdgeType, NodeType # use when running from rwd
 
 # from ..tasks.twoD.game import Action # use when running this file
-from tasks.twoD.game import Action# use when running from rwd
+from tasks.twoD.game import Action, BLACK, YELLOW, GREEN, RED# use when running from rwd
 
 from typing import Dict, List, Tuple
 
-from geometry_encoder import GeometryEncoder2D 
+from agent.geometry_encoder import GeometryEncoder2D 
+from collections import defaultdict
 """
 # ok unless we make actions stack this dont make sense hmm
 # need to produce per node denoising directions
@@ -493,7 +494,7 @@ class InstantPolicy(nn.Module):
         )
         self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim, device=self.device)
         self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
-        self.geometry_encoder = GeometryEncoder2D(output_dim=self.node_embd_dim)
+        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=self.node_embd_dim)
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components
@@ -504,7 +505,24 @@ class InstantPolicy(nn.Module):
     # εθ(Gk) = ψ(G(σ(Ga_l),ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N)))
     # might be going abuot it the wrong way. bottom up > top bottom
     # TODO: SA here
-    def _embed_local_graph(self,graph):
+    def _process_observation_to_tensor(self, obs):
+        point_clouds = torch.tensor(obs['point-clouds'], device = self.device, dtype=torch.float32)
+        coords = torch.tensor(obs['coords'], device = self.device)
+        agent_pos = torch.tensor(obs['agent-pos'], device = self.device, dtype=torch.float32)
+        agent_state = obs['agent-state']
+        agent_orientation = torch.tensor(obs['agent-orientation'], device = self.device, dtype=torch.float32)
+        done = torch.tensor(obs['done'], device = self.device)
+        time = torch.tensor(obs['time'], device = self.device)
+        return point_clouds, coords, agent_pos, agent_state, agent_orientation, done, time
+
+    def _get_selected_pointclouds(self, point_clouds, coords, centroids):
+        matches = (coords[:, None, :] == centroids[None, :, :])  # [N, K, D]
+        matches = matches.all(dim=2)  # [N, K]
+        mask = matches.any(dim=1)     # [N] -> True where curr_coords matches a centroid
+        selected_pointclouds = point_clouds[mask]
+        return selected_pointclouds
+
+    def _embed_local_graph(self,graph, features):
 
         # Embed Nodes first
         node_features_dict = dict()
@@ -514,6 +532,8 @@ class InstantPolicy(nn.Module):
 
         for node in nodes:
             index = node_idx_dict_by_node[node]
+        
+            # x is used for agent state embedding
             x = index 
             if graph.timestep > self.pred_horizon:
                 x += (graph.timestep - self.pred_horizon) * len(self.num)
@@ -526,8 +546,8 @@ class InstantPolicy(nn.Module):
                 node_embd = torch.cat([agent_node_emb, agent_state_emb], dim = -1)
 
             else:
-                embedder = self.object_embedders[node.type.name] # think about this too
-                node_embd = embedder(torch.tensor([0],device = self.device, dtype=torch.long))
+                index -= self.num_agent_nodes # aget nodes always first nc implementation
+                node_embd = features[index]
 
 
             
@@ -570,30 +590,52 @@ class InstantPolicy(nn.Module):
 
         return node_features_dict, node_index_dict_by_type, edge_features_dict, edge_index_dict, connection_matrix
 
+    def _make_localgraph(self,point_clouds, coords, agent_pos, agent_state, agent_orientation, timestep):
+        # need to process point_clouds
+        color_segments = defaultdict(list)
+
+        
+        for coord, color in zip(coords, point_clouds):
+            # Convert RGB to a hashable tuple for grouping
+            # color_key = tuple(color.astype(int))
+            color_key = None
+            color = tuple(color)
+            if color == BLACK or color == YELLOW:
+                color_key = 'goal'
+            elif color == GREEN:
+                color_key = 'edible'
+            elif color == RED:
+                color_key = 'obstacle'
+            else:
+                continue
+            color_segments[color_key].append({
+                'coord': coord,
+                'color': color
+            })        
+
+        graph = LocalGraph(color_segments, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state, agent_orientation=agent_orientation)
+        return graph 
 
     def forward(self, 
                 curr_obs, # 1 
                 provided_demos, # list of demos, whereby each demo contains a list of observation,
                 actions, # list of actions?
                 ):
+        
+
+        # pass obs t
+        pointclouds, coords, agent_pos, agent_state, agent_orientation, done, time = self._process_observation_to_tensor(curr_obs)
+
+        curr_features, curr_centroids = self.geometry_encoder(coords)
+        selected_pointclouds = self._get_selected_pointclouds(pointclouds, coords, curr_centroids)
+        
         curr_graph_agent_node_embeddings_dict = dict()
         # # σ(Gt_l)
-
-
-
-        ###### ideas #####
-        # what if we build a scale network here? so we have the centers connected to each other
-        ######
-
-
         # need to pass thru SA layers before nodes can be used to make local graph 
-        curr_graph = make_localgraph(curr_obs) 
+        curr_graph = self._make_localgraph(selected_pointclouds, curr_centroids, agent_pos, agent_state, agent_orientation, time)
         
-        
-        
-        # TODO : SA layer so _embed_loca_grpah now replaced with self.geometry_encoder
         # embed current nodes and transform 
-        curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_E, edge_idx_dict, curr_graph_A = self._embed_local_graph(curr_graph)
+        curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_E, edge_idx_dict, curr_graph_A = self._embed_local_graph(curr_graph, curr_features)
         
         rho_current = self.rho(curr_graph_X, curr_graph_node_idx_dict_by_type, curr_graph_A, curr_graph_E, edge_idx_dict)
         # store current agent node embeddings
@@ -608,9 +650,11 @@ class InstantPolicy(nn.Module):
         for demo in provided_demos:
             graph_seq = []
             for obs in demo:
-                # TODO : change here too 
-                g = make_localgraph(obs)
-                g_X, node_idx_dict_by_type, g_E, edge_idx_dict, g_A = self._embed_local_graph(g)
+                pointclouds, coords, agent_pos, agent_state, agent_orientation, done, time = self._process_observation_to_tensor(obs)
+                features, centroids = self.geometry_encoder(coords)
+                selected_pointclouds = self._get_selected_pointclouds(pointclouds, coords, centroids)
+                g = self._make_localgraph(selected_pointclouds, centroids, agent_pos, agent_state, agent_orientation, time)
+                g_X, node_idx_dict_by_type, g_E, edge_idx_dict, g_A = self._embed_local_graph(g, features)
                 _rho = self.rho(g_X, node_idx_dict_by_type, g_A, g_E, edge_idx_dict)
                 agent_nodes_embeddings = _rho[NodeType.AGENT]
                 for agent_node,agent_nodes_embedding in zip(g.agent_nodes, agent_nodes_embeddings):
@@ -696,7 +740,10 @@ class InstantPolicy(nn.Module):
 
             predicted_graph = action_graph.predicted_graph
 
-            predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_E, edge_idx_dict, predicted_graph_A = self._embed_local_graph(predicted_graph)
+            #  since action graph made from current graph, we will use the same object features
+            features = curr_features
+
+            predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_E, edge_idx_dict, predicted_graph_A = self._embed_local_graph(predicted_graph, curr_features)
             rho_action = self.rho(predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_A, predicted_graph_E, edge_idx_dict)
             
 

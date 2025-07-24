@@ -125,7 +125,6 @@ class Trainer:
                 context,
                 clean_actions
             )
-            breakpoint()
             
             agent_obj_keypoints = self.data_generator.get_agent_keypoints()
             actual_noise = self._get_position_noise(raw_noise, agent_obj_keypoints)

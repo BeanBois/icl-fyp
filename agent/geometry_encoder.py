@@ -181,7 +181,8 @@ class SetAbstractionLayer(nn.Module):
         
         self.num_centers = num_centers
         self.max_points_per_group = max_points_per_group
-        
+
+
         # PointNet processes 40-dim positional encoding (2D: 10 freq * 2 dims * 2 sin/cos = 40)
         self.pointnet = PointNetLayer(
             input_dim=40,  # High-frequency encoding for 2D
@@ -520,4 +521,6 @@ if __name__ == "__main__":
 
 
     # Training
-    train_occupancy_network()
+    # train_occupancy_network()
+
+    # 
