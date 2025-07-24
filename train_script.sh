@@ -6,7 +6,7 @@
 WORK_DIR="/vol/bitbucket/kst24/fyp/icl-fyp"
 CUDA_VERSION="11.8.0"
 ENV_NAME="icl-fyp"
-GIT_BRANCH="your-branch-name"  # Change this to your desired branch
+GIT_BRANCH="broken-pn-layer"  # Change this to your desired branch
 
 export PATH=/vol/bitbucket/kst24/fyp/icl-fyp/:$PATH
 source "/vol/cuda/${CUDA_VERSION}/setup.sh"
