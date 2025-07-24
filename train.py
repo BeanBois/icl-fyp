@@ -214,6 +214,7 @@ class Trainer:
 
     # check this fn
     # raw-noise : N  x (x,y,theta-rad,state)
+    # raw noise is actions (x_t, y_t, theta_deg) and state_noise  
     def _get_position_noise(self,raw_noise, agent_key_points):
         noise_size = (*raw_noise.shape[:2], 3) # N x num-agent-nodes x (x,y,state)
         actual_noise = torch.zeros(size = noise_size, device = self.device)
@@ -221,10 +222,12 @@ class Trainer:
         translation_noise = raw_noise[:,:2]
 
         rotation_mat = torch.zeros((raw_noise.shape[0],2,2))
-        rotation_mat[:, 0,0] = torch.cos(raw_noise[:,2])
-        rotation_mat[:, 1,1] = torch.cos(raw_noise[:,2])
-        rotation_mat[:, 0,1] = -torch.sin(raw_noise[:,2])
-        rotation_mat[:, 1,0] = torch.sin(raw_noise[:,2])
+        theta_rad = torch.deg2rad(raw_noise[:,2])
+        breakpoint()
+        rotation_mat[:, 0,0] = torch.cos(theta_rad)
+        rotation_mat[:, 1,1] = torch.cos(theta_rad)
+        rotation_mat[:, 0,1] = -torch.sin(theta_rad)
+        rotation_mat[:, 1,0] = torch.sin(theta_rad)
         # to get rot-noise, assuming kpp => (0,0) ... in (num-agent-nodesx2)
         rotation_noise = torch.einsum('ij,njk->nik', agent_key_points, rotation_mat)
 
