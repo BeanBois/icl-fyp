@@ -6,8 +6,20 @@
 WORK_DIR="/vol/bitbucket/kst24/fyp/icl-fyp"
 CUDA_VERSION="11.8.0"
 ENV_NAME="icl-fyp"
+GIT_BRANCH="your-branch-name"  # Change this to your desired branch
+
 export PATH=/vol/bitbucket/kst24/fyp/icl-fyp/:$PATH
 source "/vol/cuda/${CUDA_VERSION}/setup.sh"
+
+# Navigate to work directory
+cd "${WORK_DIR}"
+
+# Git operations - fetch latest and checkout specific branch
+echo "Fetching latest git changes..."
+git fetch origin
+echo "Checking out branch: ${GIT_BRANCH}"
+git checkout ${GIT_BRANCH}
+git pull origin ${GIT_BRANCH}
 
 # load conda env from .yml file
 # Load conda
