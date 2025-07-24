@@ -741,6 +741,7 @@ class PseudoGame:
     def get_actions(self):
         return self.actions
 
+    # change get obs
     def get_obs(self):
         agent_pos = self._get_agent_pos()
         # Since our 'point clouds' are represented as pixels in a 2d grid, our dense point cloud will be a 2d matrix of Screen-width x Screen-height
