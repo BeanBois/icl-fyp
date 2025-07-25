@@ -185,7 +185,7 @@ class Trainer:
             loss = self.train_step()
             total_loss += loss
             
-            if step % 5 == 0:
+            if step % 100 == 0:
                 print(f"Step {step}, Loss: {loss:.6f}")
         
         return total_loss / num_steps_per_epoch
@@ -223,7 +223,7 @@ class Trainer:
 
         rotation_mat = torch.zeros((raw_noise.shape[0],2,2))
         theta_rad = torch.deg2rad(raw_noise[:,2])
-        breakpoint()
+
         rotation_mat[:, 0,0] = torch.cos(theta_rad)
         rotation_mat[:, 1,1] = torch.cos(theta_rad)
         rotation_mat[:, 0,1] = -torch.sin(theta_rad)
