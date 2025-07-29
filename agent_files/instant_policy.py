@@ -46,8 +46,7 @@ def SinCosEdgeEmbedding(source, dest, device, D=3):
     if torch.isnan(diff).any() or torch.isinf(diff).any():
         diff = torch.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0)
     
-    # Convert to tensor with proper device (this was missing in original)
-    diff = torch.tensor(diff, device=device, dtype=torch.float32)
+
     
     # Clamp extreme values to prevent sin/cos overflow
     diff = torch.clamp(diff, min=-1000, max=1000)
@@ -193,8 +192,11 @@ class InstantPolicy(nn.Module):
                 edge_features_dict[edge.type]= torch.cat([edge_features_dict[edge.type], edge_emb.view(1,-1)], dim=0)
                 edge_index_dict[edge.type].append((source_node_idx,dest_node_idx))
                 
-        for edge_type in edge_features_dict.keys():
-            edge_features_dict[edge_type] = torch.tensor(edge_features_dict[edge_type], device = self.device)
+
+        # already a tensor
+        # for edge_type in edge_features_dict.keys():
+            # edge_features_dict[edge_type] = torch.stack(edge_features_dict[edge_type])
+
         return node_features_dict, node_index_dict_by_type, edge_features_dict, edge_index_dict, connection_matrix
 
     def _make_localgraph(self,point_clouds, coords, agent_pos, agent_state, agent_orientation, timestep):
