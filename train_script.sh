@@ -20,7 +20,7 @@ source "/vol/cuda/${CUDA_VERSION}/setup.sh"
 
 # Set environment variables
 export CUDA_VISIBLE_DEVICES=0
-python3 -m virtualenv $PENV
+# python3 -m virtualenv $PENV
 source $PENV/bin/activate
 pip install -r requirements.txt
 
