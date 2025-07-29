@@ -1,12 +1,12 @@
 # import graph 
-from utils.graph import LocalGraph, DemoGraph, ActionGraph, ContextGraph, make_localgraph
+from graph import LocalGraph, DemoGraph, ContextGraph, ActionGraph
 
 
 # import game
-from tasks.twoD.game import GameInterface, PseudoGame, GameMode, PseudoGameMode
+from tasks2d import  LousyPacmanPseudoGame as  PseudoGame
 
 # import agent
-from agent.agent import InstantPolicy
+from agent_files import InstantPolicyAgent
 
 import torch
 import torch.nn as nn
@@ -14,200 +14,178 @@ import torch.optim as optim
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from typing import List, Tuple, Dict
 
+# move these constants to CONFIG FILES 
 
 
 
 # Generates a single X for training. 
 #  X contains:
 #       context : list of (obs, action)
-#       label : the original graph-seq of Nth demo
-#       data : the graph-seq of noisy Nth demo
+#       clean_actions : the actions taken in the Nth demo
+#       curr_obs : curr observation of the Nth demo
+
+# think about diff demo types, biaseed, augmeneted ect
 class PseudoDemoGenerator:
 
-    def __init__(self, device, num_diffusion_steps, num_demos = 5, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20):
-        self.num_diffusion_steps = num_diffusion_steps
+    def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
+                 sample_rate=5, num_threads=4):
         self.num_demos = num_demos
-        self.min_demo_length = min_demo_length
-        self.max_demo_length = max_demo_length
-        self.num_sampled_pc = num_sampled_pointclouds
+        self.min_num_waypoints = min_num_waypoints
+        self.max_num_waypoints = max_num_waypoints
         self.device = device
-        self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
-        self.alpha_schedule = 1-self.beta_schedule
-        self.alpha_cumprod = torch.cumprod(self.alpha_schedule, dim=0)
-
+        self.sample_rate = sample_rate
+        self.agent_key_points = None
         self.translation_scale = 500
-        self.max_translation = 100  # 100 pixels
-        self.max_rotation = np.pi / 9  # 20 degrees
+        self.max_translation = 100
+        self.max_rotation = np.pi / 9
+        self.player_speed = 5 
+        self.player_rot_speed = 5
+        self.num_threads = num_threads
+        
+        # Thread-local storage for agent keypoints
+        self._thread_local = threading.local()
 
+    def get_batch_samples(self, batch_size: int) -> Tuple[torch.Tensor, List, torch.Tensor]:
+        """
+        Generate a batch of samples in parallel
+        Returns:
+            curr_obs_batch: List of batch_size current observations
+            context_batch: List of batch_size contexts (each context is a list of demos)
+            clean_actions_batch: Tensor of shape [batch_size, pred_horizon, 4]
+        """
+        # Use ThreadPoolExecutor to generate samples in parallel
+        # TODO : to add random, biased and augmented here 
+        with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+            # Submit all sample generation tasks
+            futures = [executor.submit(self._generate_single_sample) for _ in range(batch_size)]
+            
+            # Collect results as they complete
+            curr_obs_batch = []
+            context_batch = []
+            clean_actions_list = []
+            
+            for future in as_completed(futures):
+                curr_obs, context, clean_actions = future.result()
+                curr_obs_batch.append(curr_obs)
+                context_batch.append(context)
+                clean_actions_list.append(clean_actions)
+        
+        # Stack clean actions into a single tensor [batch_size, pred_horizon, 4]
+        clean_actions_batch = torch.stack(clean_actions_list, dim=0)
+        
+        # Store agent keypoints from the last generated sample (they should all be the same)
+        if hasattr(self._thread_local, 'agent_key_points') and self._thread_local.agent_key_points is not None:
+            self.agent_key_points = self._thread_local.agent_key_points
+        
+        return curr_obs_batch, context_batch, clean_actions_batch
 
-    def get_sample(self, mode):
-        context = self._get_context(mode)
-        # dont actaully need label HAHAHAH
-        curr_obs, clean_actions = self._get_ground_truth(mode)
-        clean_actions = torch.tensor(clean_actions, device = self.device)
+    def _generate_single_sample(self) -> Tuple[dict, List, torch.Tensor]:
+        """Generate a single training sample (thread-safe)"""
+        context = self._get_context()   
+        curr_obs, clean_actions, future_obs = self._get_ground_truth()
+        return curr_obs, context, clean_actions
 
-        data = {}
-        batch_size = len(clean_actions)
-        timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, noises = self._get_noisy_actions(clean_actions, timesteps)
-        data['current_observation']  = curr_obs
-        data['noisy_actions'] = noisy_actions  
-        data['noises'] = noises  
-        # change this later so that clean acitons is not returned and noise is instead
-        return data, context, clean_actions 
-
-    def _run_game(self, mode):
-        max_retries = 5
+    def get_agent_keypoints(self):
+        if self.agent_key_points is None:
+            return torch.zeros((4, 2), device=self.device)
+            
+        agent_keypoints = torch.zeros((len(self.agent_key_points), 2), device=self.device)
+        agent_keypoints[0] = torch.tensor(self.agent_key_points['front'], device=self.device)
+        agent_keypoints[1] = torch.tensor(self.agent_key_points['back-left'], device=self.device)
+        agent_keypoints[2] = torch.tensor(self.agent_key_points['back-right'], device=self.device)
+        agent_keypoints[3] = torch.tensor(self.agent_key_points['center'], device=self.device)
+        return agent_keypoints
+    
+    def _run_game(self, biased, augmented):
+        max_retries = 1000
         for attempt in range(max_retries):
             try: 
-                pseudo_demo = PseudoGame(mode=mode, max_num_sampled_waypoints=self.max_demo_length, min_num_sampled_waypoints=self.min_demo_length, num_sampled_point_clouds=self.num_sampled_pc)
+                pseudo_demo = PseudoGame(
+                    max_num_sampled_waypoints=self.max_num_waypoints, 
+                    min_num_sampled_waypoints=self.min_num_waypoints, 
+                    biased=biased, 
+                    augmented=augmented
+                )
+                # Store in thread-local storage
+                if not hasattr(self._thread_local, 'agent_key_points'):
+                    self._thread_local.agent_key_points = pseudo_demo.get_player_keypoints()
                 pseudo_demo.run()
                 return pseudo_demo
             except Exception as e:
-                print(f'Attempted {attempt + 1} failed : {e}')
                 if attempt == max_retries-1:
                     raise 
                 continue
 
-    def _get_context(self, mode):
+    def _get_context(self):
         context = []
         for _ in range(self.num_demos - 1):
-            pseudo_demo = self._run_game(mode)
-            observations = pseudo_demo.observations 
-            context.append(observations)
+            biased = random.random() < 0.5 
+            augmented = True 
+            pseudo_demo = self._run_game(biased=biased, augmented=augmented)
+            observations = pseudo_demo.observations
+            sampled_obs = observations[::self.sample_rate]
+            context.append(sampled_obs)
         return context
             
-    def _linear_beta_schedule(self, beta_start, beta_end, timesteps):
-        """Create linear noise schedule"""
-        return torch.linspace(beta_start, beta_end, timesteps, device = self.device)
+    def _get_ground_truth(self):
+        pseudo_demo = self._run_game(biased=True, augmented=False)
+        true_obs = pseudo_demo.observations[::self.sample_rate]
+        actions = torch.tensor(
+            np.array(pseudo_demo.get_actions(mode='vector', angle_unit='rad')), 
+            dtype=torch.float, 
+            device=self.device
+        )          
+        actions = self._process_actions(actions)
+        actions = actions[::self.sample_rate]
+        return true_obs[0], actions, true_obs[1:]
     
-    def _get_ground_truth(self,mode):
-        pseudo_demo = self._run_game(mode)
-        true_obs = pseudo_demo.observations
-        true_actions = pseudo_demo.get_actions() 
-        # then put true_actions into tensor since we will be using it
-        # but dont put true_obs tho 
-        # also go to Action class and have a function that reutrns a np.array 
-
-        action_dim = (len(true_actions), len(true_actions[0]))
-        label = torch.zeros(size = action_dim, device=self.device)
-        for i, action in enumerate(true_actions):
-            label[i, ...] = torch.tensor(action, dtype=torch.float, device = self.device)
-
-
-        return true_obs[0], label
-    
-    def _get_noisy_actions(self,actions : torch.Tensor, timesteps : torch.Tensor):
-
-        # Separate SE(2) transformations and binary state
-        se2_actions = actions[..., :3]  # Translation (2) + rotation (1)
-        binary_actions = actions[..., 3:4]  # Binary agent state
-        
-        # Project SE(2) to se(2) tangent space for noise addition
-        se2_tangent = self._se2_to_tangent(se2_actions)
-        
-        # Normalize to [-1, 1] range
-        se2_normalized = self._normalize_se2(se2_tangent)
-        
-        # Sample noise
-        se2_noise = torch.randn_like(se2_normalized)
-        binary_noise = torch.randn_like(binary_actions)
-        
-        # Add noise according to schedule
-        alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1)
-        # alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
-        
-        noisy_se2 = torch.sqrt(alpha_cumprod_t) * se2_normalized + torch.sqrt(1 - alpha_cumprod_t) * se2_noise
-        noisy_binary = torch.sqrt(alpha_cumprod_t) * binary_actions + torch.sqrt((1 - alpha_cumprod_t[..., 0]).unsqueeze(-1)) * binary_noise
-        
-        # Convert back to SE(2) for graph construction
-        noisy_se2_unnorm = self._unnormalize_se2(noisy_se2)
-        noisy_se2_actions = self._tangent_to_se2(noisy_se2_unnorm)
-        
-        noisy_actions = torch.cat([noisy_se2_actions, noisy_binary], dim=-1)
-        noise = torch.cat([se2_noise, binary_noise], dim=-1)
-        return noisy_actions, noise.float()
-    
-    def _se2_to_tangent(self, se2_actions):
-        """Convert SE(2) [x, y, theta] to se(2) tangent space"""
-        # For SE(2), tangent space is just [x, y, theta] since it's already linear
-        return se2_actions
-
-    def _tangent_to_se2(self, tangent):
-        """Convert se(2) tangent space back to SE(2)"""
-        return tangent
-
-    def _normalize_se2(self, se2_tangent):
-        """Normalize SE(2) tangent vectors to [-1, 1]"""
-        # You'll need to define appropriate normalization ranges
-        # Example: normalize translations and rotation separately
-        translation = se2_tangent[..., :2]  # [x, y]
-        rotation = se2_tangent[..., 2:3]    # [theta]
-        
-        # Normalize translation (adjust ranges as needed)
-        norm_translation = translation / self.translation_scale
-        # Normalize rotation to [-1, 1] from [-π, π]
-        norm_rotation = rotation / torch.pi
-        
-        return torch.cat([norm_translation, norm_rotation], dim=-1)
-
-    def _unnormalize_se2(self, normalized_se2):
-        """Unnormalize SE(2) from [-1, 1] back to original ranges"""
-        translation = normalized_se2[..., :2] * self.translation_scale
-        rotation = normalized_se2[..., 2:3] * torch.pi
-        
-        return torch.cat([translation, rotation], dim=-1)
+    def _process_actions(self, actions):
+        for i in range(len(actions) - 1):
+            actions[i+1, :2] += actions[i, :2]  # add x,y
+            actions[i+1, 2] = (actions[i+1, 2] + actions[i, 2]) % (2 * np.pi)  # add theta
+        return actions
 
     
 
-class Trainer:
+class Trainer: 
 
-    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, num_sampled_pointclouds = 20, num_diffusion_steps = 100, device='cuda'):
+    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, batch_size = 10,device='cuda'):
         self.agent = agent
         self.device = device 
         self.data_generator = PseudoDemoGenerator(
-                num_demos = num_demos_for_context + 1, 
-                num_diffusion_steps= num_diffusion_steps, 
-                max_demo_length = max_demo_length, 
-                min_demo_length=min_demo_length,
-                num_sampled_pointclouds=num_sampled_pointclouds,
+                num_demos = num_demos_for_context + 1,  
+                max_num_waypoints = max_demo_length, 
+                min_num_waypoints=min_demo_length,
                 device=self.device
                 )
-        self.alpha_schedule = self.data_generator.alpha_schedule
-        self.num_diffusion_steps = num_diffusion_steps
-  
-        self.modes = [mode for mode in PseudoGameMode if mode != PseudoGameMode.RANDOM]
+        self.batch_size = batch_size
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
         self.optimizer = optim.AdamW(agent.parameters(), lr=1e-5)
-
-        
-
+      
     def train_step(self):
-        mode = self.modes[random.randint(0,len(self.modes)-1)]
-        data, context, label = self.data_generator.get_sample(mode) # label is a tensor
-
-        curr_obs = data['current_observation'] # not a tensor
-        noisy_actions = data['noisy_actions'] # tensor 
-        noise = data['noises']
-        predictions = self.agent(
-            curr_obs,
-            context,
-            noisy_actions
-        )
-
-
-        # then MSE lost for 
-        loss = nn.MSELoss()(predictions, noise)
-        # loss = nn.MSELoss()(predictions, noise)
-
-        # backpropagation
         self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+        total_loss = 0.0
+        curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
         
-        return loss.item()
+        for i in range(self.batch_size):
+            curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
+            # Agent already computes the correct noise internally
+            predicted_noise, actual_noise = self.agent(curr_obs, context, clean_actions)
+            # Both should be [batch, 4] - action space noise
+            assert predicted_noise.shape == actual_noise.shape, f"Shape mismatch: {predicted_noise.shape} vs {actual_noise.shape}"
 
+            # Direct MSE loss in action space
+            loss = nn.MSELoss()(predicted_noise, actual_noise)
+            scaled_loss = loss / self.batch_size
+            scaled_loss.backward()
+            total_loss += loss.item()
+        
+        self.optimizer.step()
+        return total_loss / self.batch_size
     
     def train_epoch(self, num_steps_per_epoch = 100):
         total_loss = 0.0
@@ -237,7 +215,6 @@ class Trainer:
             torch.save(self.agent, save_path)
             torch.save(self.alpha_schedule, f'{save_path[:5]}-alpha_schedule.pth')
 
-
     def plot_losses(self, losses,num_steps_per_epoch):
         plt.figure()
         plt.plot(losses)
@@ -253,14 +230,16 @@ if __name__ == "__main__":
     from configs import CONFIGS
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+
     # Initialize agent
-    agent = InstantPolicy(
+    agent = InstantPolicyAgent(
                 device=device, 
+                max_translation=CONFIGS['TRAINING_MAX_TRANSLATION'],
+                num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
                 num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
                 pred_horizon=CONFIGS['PRED_HORIZON'],
-                hidden_dim=CONFIGS['HIDDEN_DIM'],
-                node_embd_dim=CONFIGS['NODE_EMB_DIM'],
-                edge_embd_dim=CONFIGS['EDGE_EMB_DIM'],
+                num_att_heads=CONFIGS['NUM_ATT_HEADS'],
+                head_dim=CONFIGS['HEAD_DIM'],
                 agent_state_embd_dim=CONFIGS['AGENT_STATE_EMB_DIM'],
                 edge_pos_dim=CONFIGS['EDGE_POS_DIM']
                 )
@@ -272,8 +251,7 @@ if __name__ == "__main__":
                       num_demos_for_context=CONFIGS['NUM_DEMO_GIVEN'],
                       max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
                       min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
-                      num_sampled_pointclouds=CONFIGS['NUM_SAMPLED_POINTCLOUDS'],
-                      num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
+                      batch_size=CONFIGS['BATCH_SIZE']
                       )
     
     
