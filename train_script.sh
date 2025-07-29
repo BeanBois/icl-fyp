@@ -7,6 +7,7 @@ WORK_DIR="/vol/bitbucket/kst24/fyp/icl-fyp"
 CUDA_VERSION="11.8.0"
 ENV_NAME="icl-fyp"
 
+export PENV=/vol/bitbucket/${USER}/ENV_NAME
 
 export PATH=/vol/bitbucket/kst24/fyp/icl-fyp/:$PATH
 source "/vol/cuda/${CUDA_VERSION}/setup.sh"
@@ -19,8 +20,8 @@ source "/vol/cuda/${CUDA_VERSION}/setup.sh"
 
 # Set environment variables
 export CUDA_VISIBLE_DEVICES=0
-python -m venv "${ENV_NAME}"
-source "${ENV_NAME}/bin/activate"  # On Windows: your_env_name\Scripts\activate
+python3 -m virtualenv $PENV
+source $PENV/bin/activate
 pip install -r requirements.txt
 
 python3 -u "${WORK_DIR}/train.py"
