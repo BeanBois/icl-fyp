@@ -90,8 +90,6 @@ class PseudoDemoGenerator:
             actions[i+1, :3] += actions[i, : 3] 
             actions[i+1, 2] = actions[i+1, 2] % 360 
         return actions 
-
-
     
 
 class Trainer: 
