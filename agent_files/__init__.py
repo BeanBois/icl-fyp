@@ -1,2 +1,1 @@
-# from .agent import InstantPolicyAgent
-from .temp import InstantPolicyAgent 
+from .agent import InstantPolicyAgent
