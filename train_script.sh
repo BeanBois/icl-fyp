@@ -22,6 +22,6 @@ source "/vol/cuda/${CUDA_VERSION}/setup.sh"
 export CUDA_VISIBLE_DEVICES=0
 # python3 -m virtualenv $PENV
 source $PENV/bin/activate
-pip install -r requirements.txt
+pip install -r "${WORK_DIR}/requirements.txt"
 
 python3 -u "${WORK_DIR}/train.py"
