@@ -41,6 +41,7 @@ class PseudoDemoGenerator:
         self.max_translation = 100  # 100 pixels
         self.max_rotation = np.pi / 9  # 20 degrees
 
+
         #
         self.player_speed = 5 
         self.player_rot_speed = 5
@@ -114,8 +115,7 @@ class Trainer:
         self.batch_size = batch_size
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
         self.optimizer = optim.AdamW(agent.parameters(), lr=1e-5)
-
-        
+      
     def train_step(self):
         self.optimizer.zero_grad()
         total_loss = 0.0
