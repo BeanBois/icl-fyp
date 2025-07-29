@@ -3,11 +3,11 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=<your_username>
 
-WORK_DIR="/vol/bitbucket/kst24/fyp/icl-fyp"
+WORK_DIR="/vol/bitbucket/kst24/icl-fyp"
 CUDA_VERSION="11.8.0"
 ENV_NAME="icl-fyp"
 
-export PENV=/vol/bitbucket/${USER}/ENV_NAME
+export PENV=/vol/bitbucket/${USER}/${ENV_NAME}
 
 export PATH=/vol/bitbucket/kst24/fyp/icl-fyp/:$PATH
 source "/vol/cuda/${CUDA_VERSION}/setup.sh"
