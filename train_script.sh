@@ -14,8 +14,8 @@ source "/vol/cuda/${CUDA_VERSION}/setup.sh"
 
 
 # Install required packages (if not already installed)
-pip install --user torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-pip install --user pygame numpy matplotlib
+# pip install --user torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+# pip install --user pygame numpy matplotlib
 
 # Set environment variables
 export CUDA_VISIBLE_DEVICES=0
