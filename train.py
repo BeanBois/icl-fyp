@@ -58,6 +58,7 @@ class PseudoDemoGenerator:
             clean_actions_batch: Tensor of shape [batch_size, pred_horizon, 4]
         """
         # Use ThreadPoolExecutor to generate samples in parallel
+        # TODO : to add random, biased and augmented here 
         with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             # Submit all sample generation tasks
             futures = [executor.submit(self._generate_single_sample) for _ in range(batch_size)]
@@ -122,8 +123,8 @@ class PseudoDemoGenerator:
     def _get_context(self):
         context = []
         for _ in range(self.num_demos - 1):
-            biased = True
-            augmented = False
+            biased = random.random() < 0.5 
+            augmented = True 
             pseudo_demo = self._run_game(biased=biased, augmented=augmented)
             observations = pseudo_demo.observations
             sampled_obs = observations[::self.sample_rate]

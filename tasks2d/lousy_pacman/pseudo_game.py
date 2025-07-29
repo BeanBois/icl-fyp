@@ -633,7 +633,101 @@ class PseudoGame:
         return waypoints_with_player_state
         
     def _augment_waypoints(self, waypoints_with_player_state):
-        return waypoints_with_player_state
+        """
+        Implement data augmentation as described in the paper:
+        1. For 30% of trajectories: add local disturbances with corrective actions
+        2. For 10% of data points: change gripper open-close state (eating state)
+        """
+        augmented_waypoints = waypoints_with_player_state.copy()
+        
+        # 1. Local disturbances for 30% of trajectories
+        if np.random.random() < 0.3:
+            augmented_waypoints = self._add_local_disturbances(augmented_waypoints)
+        
+        # 2. State changes for 10% of data points
+        augmented_waypoints = self._add_state_changes(augmented_waypoints, change_probability=0.1)
+        
+        return augmented_waypoints
+
+    def _add_local_disturbances(self, waypoints_with_player_state):
+        """
+        Add local disturbances to waypoints and insert corrective waypoints
+        to bring the trajectory back to the reference path.
+        """
+        original_waypoints = waypoints_with_player_state.copy()
+        augmented_waypoints = []
+        
+        # Parameters for disturbances
+        DISTURBANCE_MAGNITUDE = 15.0  # Adjust based on your coordinate system
+        MIN_CORRECTION_STEPS = 1
+        MAX_CORRECTION_STEPS = 3
+        
+        for i in range(len(original_waypoints)):
+            current_waypoint = original_waypoints[i].copy()
+            
+            # Decide whether to add disturbance to this waypoint (not every waypoint)
+            if np.random.random() < 0.4:  # 40% chance per waypoint
+                # Add the original waypoint first
+                augmented_waypoints.append(current_waypoint)
+                
+                # Create disturbed waypoint
+                disturbance = np.random.normal(0, DISTURBANCE_MAGNITUDE, 2)
+                disturbed_position = current_waypoint[:-1] + disturbance
+                
+                # Clamp to screen boundaries
+                disturbed_position[0] = np.clip(disturbed_position[0], 0, self.screen_width - 1)
+                disturbed_position[1] = np.clip(disturbed_position[1], 0, self.screen_height - 1)
+                
+                # Create disturbed waypoint with same state
+                disturbed_waypoint = np.zeros_like(current_waypoint)
+                disturbed_waypoint[:-1] = disturbed_position
+                disturbed_waypoint[-1] = current_waypoint[-1]  # Keep same player state
+                
+                augmented_waypoints.append(disturbed_waypoint)
+                
+                # Add correction waypoints to bring back to reference trajectory
+                num_correction_steps = np.random.randint(MIN_CORRECTION_STEPS, MAX_CORRECTION_STEPS + 1)
+                
+                # Get the next reference waypoint for correction target
+                next_reference_idx = min(i + 1, len(original_waypoints) - 1)
+                target_position = original_waypoints[next_reference_idx][:-1]
+                
+                # Create intermediate correction waypoints
+                for step in range(1, num_correction_steps + 1):
+                    # Interpolate back towards the reference trajectory
+                    alpha = step / num_correction_steps
+                    correction_position = (1 - alpha) * disturbed_position + alpha * target_position
+                    
+                    # Create correction waypoint
+                    correction_waypoint = np.zeros_like(current_waypoint)
+                    correction_waypoint[:-1] = correction_position
+                    correction_waypoint[-1] = current_waypoint[-1]  # Keep same player state
+                    
+                    augmented_waypoints.append(correction_waypoint)
+            else:
+                # No disturbance, just add the original waypoint
+                augmented_waypoints.append(current_waypoint)
+        
+        return np.array(augmented_waypoints)
+
+    def _add_state_changes(self, waypoints_with_player_state, change_probability=0.1):
+        """
+        Randomly change the eating state for a percentage of waypoints.
+        This helps the policy learn to re-grasp/re-engage after state changes.
+        """
+        augmented_waypoints = waypoints_with_player_state.copy()
+        
+        for i in range(len(augmented_waypoints)):
+            if np.random.random() < change_probability:
+                current_state = augmented_waypoints[i, -1]
+                
+                # Flip the eating state
+                if current_state == PlayerState.EATING.value:
+                    augmented_waypoints[i, -1] = PlayerState.NOT_EATING.value
+                else:
+                    augmented_waypoints[i, -1] = PlayerState.EATING.value
+        
+        return augmented_waypoints
 
    
     def _get_screen_pixels(self):
