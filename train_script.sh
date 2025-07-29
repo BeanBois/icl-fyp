@@ -5,7 +5,7 @@
 
 WORK_DIR="/vol/bitbucket/kst24/icl-fyp"
 CUDA_VERSION="11.8.0"
-ENV_NAME="icl-fyp"
+ENV_NAME="myenv"
 
 export PENV=/vol/bitbucket/${USER}/${ENV_NAME}
 
