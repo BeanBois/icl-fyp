@@ -137,7 +137,6 @@ class InstantPolicy(nn.Module):
         node_index_dict_by_type = dict()
         nodes, node_idx_dict_by_node = graph.get_nodes()
 
-
         for node in nodes:
             index = node_idx_dict_by_node[node]
         
@@ -201,16 +200,21 @@ class InstantPolicy(nn.Module):
 
         return node_features_dict, node_index_dict_by_type, edge_features_dict, edge_index_dict, connection_matrix
 
-    def _make_localgraph(self,point_clouds, coords, agent_pos, agent_state, agent_orientation, timestep):
-        # need to process point_clouds
-        color_segments = defaultdict(list)
-
+    def _make_localgraph(self, point_clouds, coords, agent_pos, agent_state, agent_orientation, timestep):
+        # Convert all tensors to NumPy arrays
+        point_clouds_np = point_clouds.cpu().numpy() if torch.is_tensor(point_clouds) else point_clouds
+        coords_np = coords.cpu().numpy() if torch.is_tensor(coords) else coords
+        agent_pos_np = agent_pos.cpu().numpy() if torch.is_tensor(agent_pos) else agent_pos
+        agent_state_np = agent_state.cpu().numpy() if torch.is_tensor(agent_state) else agent_state
+        agent_orientation_np = agent_orientation.cpu().numpy() if torch.is_tensor(agent_orientation) else agent_orientation
+        timestep_np = timestep.cpu().numpy() if torch.is_tensor(timestep) else timestep
         
-        for coord, color in zip(coords, point_clouds):
-            # Convert RGB to a hashable tuple for grouping
-            # color_key = tuple(color.astype(int))
+        # Process point clouds
+        color_segments = defaultdict(list)
+        
+        for coord, color in zip(coords_np, point_clouds_np):
             color_key = None
-            color = tuple(color)
+            color = tuple(color.astype(int))  # Convert to int for comparison
             if color == BLACK or color == YELLOW:
                 color_key = 'goal'
             elif color == GREEN:
@@ -222,11 +226,14 @@ class InstantPolicy(nn.Module):
             color_segments[color_key].append({
                 'coord': coord,
                 'color': color
-            })        
-
-
-        graph = LocalGraph(color_segments, timestep=timestep, agent_pos=agent_pos, agent_state=agent_state, agent_orientation=agent_orientation)
-        return graph 
+            })
+        
+        graph = LocalGraph(color_segments, 
+                        timestep=timestep_np, 
+                        agent_pos=agent_pos_np, 
+                        agent_state=agent_state_np, 
+                        agent_orientation=agent_orientation_np)
+        return graph
 
     # TODO : fix the graphs here. it is notworking as it should? unsure im not going to lie
     def forward(self, 

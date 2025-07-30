@@ -114,8 +114,7 @@ class ActionGraph:
 
 
     def _apply_action_to_agent_node(self, agent_node):
-
-        # complete this funciton 
+        
         agent_node.pos = agent_node.pos + self.moving_action
         agent_node.orientation += np.rad2deg(self.rotating_action)
         agent_node.orientation = (agent_node.orientation % 360)
