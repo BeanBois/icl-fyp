@@ -90,6 +90,7 @@ class InstantPolicy(nn.Module):
         self.node_embd_dim = node_embd_dim
         self.edge_embd_dim = edge_embd_dim
         self.agent_state_embd_dim = agent_state_embd_dim
+        self.edge_pos_dim = edge_pos_dim
 
         # embedders
         self.agent_embedder = nn.Embedding(
@@ -98,7 +99,8 @@ class InstantPolicy(nn.Module):
             device=self.device
         )
         self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim, device=self.device)
-        self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
+        # self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
+        self.spatial_edge_embedding = SinCosEdgeEmbedding
         self.geometry_encoder = GeometryEncoder2D(node_embd_dim=self.node_embd_dim)
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
@@ -182,7 +184,7 @@ class InstantPolicy(nn.Module):
             else:
                 source_pos = edge.source.pos 
                 dest_pos = edge.dest.pos
-                edge_emb = self.spatial_edge_embedding(source_pos, dest_pos)
+                edge_emb = self.spatial_edge_embedding(source_pos, dest_pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
 
 
             if edge.type not in edge_index_dict.keys():
@@ -309,7 +311,7 @@ class InstantPolicy(nn.Module):
             source_node_idx = context_graph_node_idx_dict_by_node[edge.source]
             dest_node_idx = context_graph_node_idx_dict_by_node[edge.dest]
             context_connection_matrix[source_node_idx, dest_node_idx] = 1
-            feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos)
+            feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
             if edge.type not in context_graph_edge_features.keys():
                 context_graph_edge_features[edge.type] = feature.view(1,-1)
                 context_graph_edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]
@@ -393,7 +395,7 @@ class InstantPolicy(nn.Module):
                 source_node_idx = action_index_dict_by_nodes[edge.source]
                 dest_node_idx = action_index_dict_by_nodes[edge.dest]
                 action_connection_matrix[source_node_idx, dest_node_idx] = 1
-                feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos)
+                feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
                 if edge.type not in action_graph_edge_features.keys():
                     action_graph_edge_features[edge.type] = feature.view(1,-1)
                     action_graph_edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]

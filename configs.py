@@ -23,10 +23,10 @@ CONFIGS = {
     # TRAINING CONFIGS:
     'NUM_DIFFUSION_STEPS' : 500,
     'NUM_DEMO_GIVEN' : 3,
-    'NUM_STEPS_PER_EPOCH' : 200,
+    'NUM_STEPS_PER_EPOCH' : 50,
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
-    'MODEL_FILE_PATH' :  "instant_policy.pth",
+    'MODEL_FILE_PATH' :  "instant_policy_v0.pth",
     'TRAINING_MAX_TRANSLATION' : 500, # WIDTH^2 + HEIGHT^2 SQRT
     'BATCH_SIZE' : 20,
 

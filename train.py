@@ -213,7 +213,6 @@ class Trainer:
         self.plot_losses(avg_losses,num_steps_per_epoch)
         if save_model:
             torch.save(self.agent, save_path)
-            torch.save(self.alpha_schedule, f'{save_path[:5]}-alpha_schedule.pth')
 
     def plot_losses(self, losses,num_steps_per_epoch):
         plt.figure()
