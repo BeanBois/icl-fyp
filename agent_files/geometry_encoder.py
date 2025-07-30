@@ -11,7 +11,7 @@ from collections import defaultdict
 # UTILITY FUNCTIONS
 # ===========================
 
-def furthest_point_sampling(points, num_samples):
+def furthest_point_sampling(points, num_samples, device):
     """
     Efficient tensor-based FPS for 2D points
     Args:
@@ -21,7 +21,6 @@ def furthest_point_sampling(points, num_samples):
         sampled_indices: [num_samples] indices of selected points
     """
     N = points.shape[0]
-    device = points.device
     
     if N <= num_samples:
         return torch.arange(N, device=device)
@@ -46,7 +45,7 @@ def furthest_point_sampling(points, num_samples):
     
     return sampled_indices
 
-def nearest_centroid_grouping(points, centroids, max_points_per_group=32):
+def nearest_centroid_grouping(points, centroids, device, max_points_per_group=32):
     """
     Group points to their nearest centroids
     Args:
@@ -59,7 +58,7 @@ def nearest_centroid_grouping(points, centroids, max_points_per_group=32):
     """
     N = points.shape[0]
     M = centroids.shape[0] 
-    device = points.device
+
     
     if N == 0 or M == 0:
         return torch.full((M, max_points_per_group), -1, dtype=torch.long, device=device), \
@@ -104,7 +103,7 @@ def nearest_centroid_grouping(points, centroids, max_points_per_group=32):
     
     return grouped_indices, grouped_points
 
-def high_frequency_encoding_2d(relative_positions, num_frequencies=10):
+def high_frequency_encoding_2d(relative_positions, device, num_frequencies=10):
     """
     Apply high-frequency sinusoidal encoding for 2D coordinates
     Args:
@@ -114,28 +113,29 @@ def high_frequency_encoding_2d(relative_positions, num_frequencies=10):
         encodings: [..., 4*num_frequencies] encoded positions
     """
     *batch_dims, dim = relative_positions.shape
-    device = relative_positions.device
+
     
     encodings = []
     for freq_exp in range(num_frequencies):
         freq = (2 ** freq_exp) * torch.pi
         for d in range(dim):  # x, y for 2D
-            encodings.append(torch.sin(freq * relative_positions[..., d]))
-            encodings.append(torch.cos(freq * relative_positions[..., d]))
+            encodings.append(torch.sin(freq * relative_positions[..., d], device=device))
+            encodings.append(torch.cos(freq * relative_positions[..., d], device=device))
     
-    return torch.stack(encodings, dim=-1)  # [..., 40]
+    return torch.stack(encodings, dim=-1, device=device)  # [..., 40]
 
 # ===========================
 # POINTNET LAYER
 # ===========================
 
 class PointNetLayer(nn.Module):
-    def __init__(self, input_dim, output_dim, hidden_dims=[64, 128]):
+    def __init__(self, input_dim, output_dim, device, hidden_dims=[64, 128]):
         super().__init__()
         
         # Build MLP layers
         layers = []
         prev_dim = input_dim
+        self.device = device
         
         for hidden_dim in hidden_dims:
             layers.extend([
@@ -148,7 +148,7 @@ class PointNetLayer(nn.Module):
         # Final output layer
         layers.append(nn.Linear(prev_dim, output_dim))
         
-        self.mlp = nn.Sequential(*layers)
+        self.mlp = nn.Sequential(*layers).to(self.device)
     
     def forward(self, grouped_features):
         """
@@ -178,9 +178,9 @@ class PointNetLayer(nn.Module):
 # ===========================
 
 class SetAbstractionLayer(nn.Module):
-    def __init__(self, num_centers, max_points_per_group=32, output_dim=16):
+    def __init__(self, num_centers, device, max_points_per_group=32, output_dim=16):
         super().__init__()
-        
+        self.device = device
         self.num_centers = num_centers
         self.max_points_per_group = max_points_per_group
 
@@ -189,8 +189,9 @@ class SetAbstractionLayer(nn.Module):
         self.pointnet = PointNetLayer(
             input_dim=40,  # High-frequency encoding for 2D
             output_dim=output_dim,
-            hidden_dims=[64, 128]
-        )
+            hidden_dims=[64, 128],
+            device=self.device
+        ).to(self.device)
     
     def forward(self, points):
         """
@@ -201,17 +202,16 @@ class SetAbstractionLayer(nn.Module):
             centroids: [num_centers, 2] centroid positions
         """
         if points.shape[0] == 0:
-            device = points.device
-            return torch.zeros(0, self.pointnet.mlp[-1].out_features, device=device), \
-                   torch.zeros(0, 2, device=device)
+            return torch.zeros(0, self.pointnet.mlp[-1].out_features, device=self.device), \
+                   torch.zeros(0, 2, device=self.device)
         
         # Step 1: Sample centroids using FPS
-        sampled_indices = furthest_point_sampling(points, self.num_centers)
+        sampled_indices = furthest_point_sampling(points, self.num_centers, device=self.device)
         centroids = points[sampled_indices]  # [num_centers, 2]
         
         # Step 2: Group points to nearest centroids
         grouped_indices, grouped_points = nearest_centroid_grouping(
-            points, centroids, self.max_points_per_group
+            points, centroids, self.max_points_per_group, device=self.device
         )
         
         # Step 3: Re-center points relative to their assigned centroids
@@ -219,7 +219,7 @@ class SetAbstractionLayer(nn.Module):
         relative_positions = grouped_points - centroids_expanded  # [num_centers, max_points_per_group, 2]
         
         # Step 4: Apply high-frequency encoding
-        encoded_positions = high_frequency_encoding_2d(relative_positions)  # [num_centers, max_points_per_group, 40]
+        encoded_positions = high_frequency_encoding_2d(relative_positions, device=self.device)  # [num_centers, max_points_per_group, 40]
         
         # Step 5: Apply PointNet aggregation
         features = self.pointnet(encoded_positions)  # [num_centers, output_dim]
@@ -235,12 +235,12 @@ class GeometryEncoder2D(nn.Module):
     Simple geometry encoder that outputs node_embd_dim features directly
     Follows Instant Policy paper: 2 Set Abstraction layers, 16 output nodes
     """
-    def __init__(self, node_embd_dim=16):
+    def __init__(self, device, node_embd_dim=16):
         super().__init__()
-        
+        self.device = device
         # Two Set Abstraction layers as described in Instant Policy paper
-        self.sa_layer1 = SetAbstractionLayer(num_centers=32, output_dim=64)
-        self.sa_layer2 = SetAbstractionLayer(num_centers=16, output_dim=node_embd_dim)
+        self.sa_layer1 = SetAbstractionLayer(num_centers=32, output_dim=64, device=self.device).to(self.device)
+        self.sa_layer2 = SetAbstractionLayer(num_centers=16, output_dim=node_embd_dim, device=self.device).to(self.device)
     
     def forward(self, point_cloud_2d):
         """
@@ -251,17 +251,15 @@ class GeometryEncoder2D(nn.Module):
             positions: [16, 2] centroid positions
         """
         if point_cloud_2d.shape[0] == 0:
-            device = point_cloud_2d.device
-            return torch.zeros(0, self.sa_layer2.pointnet.mlp[-1].out_features, device=device), \
-                   torch.zeros(0, 2, device=device)
+            return torch.zeros(0, self.sa_layer2.pointnet.mlp[-1].out_features, device=self.device), \
+                   torch.zeros(0, 2, device=self.device)
         
         # First SA layer: downsample to 32 points with 64-dim features
         features1, centroids1 = self.sa_layer1(point_cloud_2d)  # [32, 64], [32, 2]
         
         if centroids1.shape[0] == 0:
-            device = point_cloud_2d.device
-            return torch.zeros(0, self.sa_layer2.pointnet.mlp[-1].out_features, device=device), \
-                   torch.zeros(0, 2, device=device)
+            return torch.zeros(0, self.sa_layer2.pointnet.mlp[-1].out_features, device=self.device), \
+                   torch.zeros(0, 2, device=self.device)
         
         # Second SA layer: downsample to 16 points with node_embd_dim features
         features2, centroids2 = self.sa_layer2(centroids1)      # [16, node_embd_dim], [16, 2]
@@ -273,9 +271,9 @@ class GeometryEncoder2D(nn.Module):
 # ===========================
 
 class OccupancyDecoder2D(nn.Module):
-    def __init__(self, feature_dim=16, pos_encoding_dim=40):
+    def __init__(self, device, feature_dim=16, pos_encoding_dim=40):
         super().__init__()
-        
+        self.device = device
         input_dim = feature_dim + pos_encoding_dim  # node_embd_dim + 40
         
         # Simple MLP for occupancy prediction
@@ -288,7 +286,7 @@ class OccupancyDecoder2D(nn.Module):
             nn.ReLU(),
             nn.Linear(32, 1),
             nn.Sigmoid()
-        )
+        ).to(self.device)
     
     def forward(self, geometry_features, query_points):
         """
@@ -302,7 +300,7 @@ class OccupancyDecoder2D(nn.Module):
             return torch.zeros(query_points.shape[0], device=query_points.device)
         
         # Encode query points
-        query_encoded = high_frequency_encoding_2d(query_points)  # [Q, 40]
+        query_encoded = high_frequency_encoding_2d(query_points, device=self.device)  # [Q, 40]
         
         occupancy_predictions = []
         for i, query_pt in enumerate(query_points):
@@ -323,10 +321,11 @@ class OccupancyNetwork2D(nn.Module):
     """
     Complete occupancy network for pre-training geometry encoder
     """
-    def __init__(self, node_embd_dim=16):
+    def __init__(self, device, node_embd_dim=16):
         super().__init__()
-        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=node_embd_dim)
-        self.occupancy_decoder = OccupancyDecoder2D(feature_dim=node_embd_dim)
+        self.device = device
+        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=node_embd_dim, device=self.device).to(self.device)
+        self.occupancy_decoder = OccupancyDecoder2D(feature_dim=node_embd_dim, device=self.device).to(self.device)
     
     def forward(self, point_cloud_2d, query_points_2d):
         """
@@ -351,7 +350,7 @@ class OccupancyNetwork2D(nn.Module):
 # TRAINING DATA GENERATION
 # ===========================
 
-def extract_object_pixels_from_game(pseudogame):
+def extract_object_pixels_from_game(pseudogame, device):
     """
     Extract object pixels from your pygame with multiple objects
     Returns a dictionary mapping object indices to their pixel coordinates
@@ -378,13 +377,13 @@ def extract_object_pixels_from_game(pseudogame):
         for i, color in enumerate(unique_colors):
             color_mask = np.all(object_pixels == color, axis=1)
             if np.any(color_mask):
-                object_pixel_groups[i] = torch.tensor(object_coords[color_mask], dtype=torch.float32)
+                object_pixel_groups[i] = torch.tensor(object_coords[color_mask], dtype=torch.float32, device=device)
         
         return object_pixel_groups
     else:
         return {}
 
-def generate_query_points_2d_multi_object(pseudogame, num_positive_per_obj=25, num_negative=50):
+def generate_query_points_2d_multi_object(pseudogame, device,  num_positive_per_obj=25, num_negative=50):
     """
     Generate positive (on objects) and negative (empty space) query points for multiple objects
     
@@ -448,11 +447,11 @@ def generate_query_points_2d_multi_object(pseudogame, num_positive_per_obj=25, n
         if attempts >= 20:
             negative_points.append([x, y])
     
-    return (torch.tensor(positive_points, dtype=torch.float32), 
-            torch.tensor(negative_points, dtype=torch.float32),
-            torch.tensor(object_labels, dtype=torch.long))
+    return (torch.tensor(positive_points, dtype=torch.float32, device=device), 
+            torch.tensor(negative_points, dtype=torch.float32, device=device),
+            torch.tensor(object_labels, dtype=torch.long, device=device))
 
-def generate_training_data_multi_object(num_samples=1000):
+def generate_training_data_multi_object(device, num_samples=1000):
     """
     Generate training data from your PseudoGame with multiple objects
     Each sample now contains information about multiple objects
@@ -476,10 +475,10 @@ def generate_training_data_multi_object(num_samples=1000):
             pseudogame.draw()  # Ensure screen is rendered
             
             # Extract object pixels (now returns dict of object groups)
-            object_pixel_groups = extract_object_pixels_from_game(pseudogame)
+            object_pixel_groups = extract_object_pixels_from_game(pseudogame, device)
             
             # Generate query points
-            positive_queries, negative_queries, object_labels = generate_query_points_2d_multi_object(pseudogame)
+            positive_queries, negative_queries, object_labels = generate_query_points_2d_multi_object(pseudogame, device)
             
             if len(object_pixel_groups) > 0 and positive_queries.shape[0] > 0:
                 # Combine all object pixels into one point cloud for the geometry encoder
@@ -488,7 +487,7 @@ def generate_training_data_multi_object(num_samples=1000):
                     all_object_pixels.append(obj_pixels)
                 
                 if all_object_pixels:
-                    combined_point_cloud = torch.cat(all_object_pixels, dim=0)
+                    combined_point_cloud = torch.cat(all_object_pixels, dim=0, device=device)
                     
                     training_data.append({
                         'point_cloud': combined_point_cloud,
@@ -513,7 +512,7 @@ def generate_training_data_multi_object(num_samples=1000):
 # TRAINING FUNCTIONS
 # ===========================
 
-def train_occupancy_network_multi_object(num_epochs=100, lr=1e-3, node_embd_dim=16):
+def train_occupancy_network_multi_object(device, num_epochs=100, lr=1e-3, node_embd_dim=16):
     """
     Train the occupancy network for pre-training geometry encoder with multiple objects
     """
@@ -526,8 +525,8 @@ def train_occupancy_network_multi_object(num_epochs=100, lr=1e-3, node_embd_dim=
         return None
     
     # Initialize model
-    model = OccupancyNetwork2D(node_embd_dim=node_embd_dim)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    model = OccupancyNetwork2D(node_embd_dim=node_embd_dim, device=device).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr).to(device)
     
     print("Training occupancy network with multiple objects...")
     for epoch in range(num_epochs):
