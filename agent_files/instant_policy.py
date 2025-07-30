@@ -316,7 +316,9 @@ class InstantPolicy(nn.Module):
             source_node_idx = context_graph_node_idx_dict_by_node[edge.source]
             dest_node_idx = context_graph_node_idx_dict_by_node[edge.dest]
             context_connection_matrix[source_node_idx, dest_node_idx] = 1
-            feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
+            source_pos = torch.tensor(edge.source.pos, device=self.device, dtype=torch.float32)
+            dest_pos = torch.tensor(edge.dest.pos, device=self.device, dtype=torch.float32)
+            feature = self.spatial_edge_embedding(source_pos, dest_pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
             if edge.type not in context_graph_edge_features.keys():
                 context_graph_edge_features[edge.type] = feature.view(1,-1)
                 context_graph_edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]
@@ -400,7 +402,9 @@ class InstantPolicy(nn.Module):
                 source_node_idx = action_index_dict_by_nodes[edge.source]
                 dest_node_idx = action_index_dict_by_nodes[edge.dest]
                 action_connection_matrix[source_node_idx, dest_node_idx] = 1
-                feature = self.spatial_edge_embedding(edge.source.pos, edge.dest.pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
+                source_pos = torch.tensor(edge.source.pos, device=self.device, dtype=torch.float32)
+                dest_pos = torch.tensor(edge.dest.pos, device=self.device, dtype=torch.float32)
+                feature = self.spatial_edge_embedding(source_pos, dest_pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
                 if edge.type not in action_graph_edge_features.keys():
                     action_graph_edge_features[edge.type] = feature.view(1,-1)
                     action_graph_edge_index_dict[edge.type] = [(source_node_idx,dest_node_idx)]
