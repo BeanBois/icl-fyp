@@ -153,7 +153,7 @@ class InstantPolicy(nn.Module):
                 node_embd = torch.cat([agent_node_emb, agent_state_emb], dim = -1)
 
             else:
-                _index = index -  self.num_agent_nodes # aget nodes always first nc implementation
+                _index = index  -  self.num_agent_nodes # aget nodes always first nc implementation
                 node_embd = features[_index]
 
 
@@ -165,8 +165,6 @@ class InstantPolicy(nn.Module):
             else:
                 node_index_dict_by_type[node.type].append(index)
                 node_features_dict[node.type] = torch.cat([node_features_dict[node.type], node_embd.view(1,-1)], dim = 0)
-
-        
 
         # embed edges 
         edge_features_dict = dict()
@@ -181,8 +179,8 @@ class InstantPolicy(nn.Module):
             if edge.type is EdgeType.AGENT_COND_AGENT:
                 edge_emb = self.agent_cond_agent_edge_emb(0) # think about this
             else:
-                source_pos = edge.source.pos 
-                dest_pos = edge.dest.pos
+                source_pos = torch.tensor(edge.source.pos, device=self.device, dtype=torch.float32)
+                dest_pos = torch.tensor(edge.dest.pos, device=self.device, dtype=torch.float32)
                 edge_emb = self.spatial_edge_embedding(source_pos, dest_pos, device= self.device, D = self.edge_embd_dim // (2 * self.edge_pos_dim))
 
 
