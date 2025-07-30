@@ -119,8 +119,8 @@ def high_frequency_encoding_2d(relative_positions, device, num_frequencies=10):
     for freq_exp in range(num_frequencies):
         freq = (2 ** freq_exp) * torch.pi
         for d in range(dim):  # x, y for 2D
-            encodings.append(torch.sin(freq * relative_positions[..., d], device=device))
-            encodings.append(torch.cos(freq * relative_positions[..., d], device=device))
+            encodings.append(torch.sin(freq * relative_positions[..., d]))
+            encodings.append(torch.cos(freq * relative_positions[..., d]))
     
     return torch.stack(encodings, dim=-1, device=device)  # [..., 40]
 
