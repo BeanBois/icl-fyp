@@ -105,9 +105,9 @@ class InstantPolicy(nn.Module):
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components
-        self.rho = RhoNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device)
-        self.phi = PhiNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device)
-        self.psi = PsiNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device)
+        self.rho = RhoNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device).to(self.device)
+        self.phi = PhiNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device).to(self.device)
+        self.psi = PsiNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device).to(self.device)
 
     # εθ(Gk) = ψ(G(σ(Ga_l),ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N)))
     # might be going abuot it the wrong way. bottom up > top bottom

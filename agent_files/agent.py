@@ -69,13 +69,13 @@ class InstantPolicyAgent(nn.Module):
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
         noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps)
 
-        node_embs = self.policy(curr_obs, context, noisy_actions) # N x self.num_agent_nodes x self.node_emb_dim
+        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device) # N x self.num_agent_nodes x self.node_emb_dim
         aggregated_features = node_embs.mean(dim=1)
 
         # Predict noise components
-        translation_noise = self.pred_head_p(aggregated_features)    # [N, 2]
-        rotation_noise = self.pred_head_rot(aggregated_features)     # [N, 1] - ADD THIS HEAD!
-        gripper_noise = self.pred_head_g(aggregated_features)        # [N, 1]
+        translation_noise = self.pred_head_p(aggregated_features).to(self.device)    # [N, 2]
+        rotation_noise = self.pred_head_rot(aggregated_features).to(self.device)    # [N, 1] - ADD THIS HEAD!
+        gripper_noise = self.pred_head_g(aggregated_features).to(self.device)    # [N, 1]
         
         # Combine predictions
         predicted_noise = torch.cat([translation_noise, rotation_noise, gripper_noise], dim=-1)  # [N, 4]
