@@ -211,7 +211,7 @@ class SetAbstractionLayer(nn.Module):
         
         # Step 2: Group points to nearest centroids
         grouped_indices, grouped_points = nearest_centroid_grouping(
-            points, centroids, self.max_points_per_group, device=self.device
+            points, centroids, device=self.device, max_points_per_group=self.max_points_per_group
         )
         
         # Step 3: Re-center points relative to their assigned centroids
