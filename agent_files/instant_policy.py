@@ -99,9 +99,9 @@ class InstantPolicy(nn.Module):
             device=self.device
         )
         self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim, device=self.device)
-        # self.spatial_edge_embedding = lambda source_pos, dest_pos : SinCosEdgeEmbedding(source_pos, dest_pos, self.device, D = self.edge_embd_dim // (2 * edge_pos_dim))
+
         self.spatial_edge_embedding = SinCosEdgeEmbedding
-        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=self.node_embd_dim)
+        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=self.node_embd_dim, device=self.device).to(self.device)
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components
@@ -172,7 +172,7 @@ class InstantPolicy(nn.Module):
         # embed edges 
         edge_features_dict = dict()
         edge_index_dict = dict()
-        connection_matrix = np.zeros((len(nodes), len(nodes)))
+        connection_matrix = torch.zeros((len(nodes), len(nodes)), device=self.device)
         edges = graph.get_edges()
         for edge in edges:
             source_node_idx = node_idx_dict_by_node[edge.source]
@@ -424,10 +424,8 @@ class InstantPolicy(nn.Module):
         return predictions
 
     def _recover_action_obj(self, action):
-        if action.device == 'cpu':
-            x, y, theta, state_change = action
-        else:
-            x, y, theta, state_change = action.cpu()
+
+        x, y, theta, state_change = action
         forward_movement = np.sqrt(x**2 + y**2)
         
         # Method 2: Signed projection (can be negative if moving backward)
