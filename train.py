@@ -40,8 +40,8 @@ class PseudoDemoGenerator:
         self.sample_rate = sample_rate
         self.agent_key_points = None
         self.translation_scale = 500
-        self.max_translation = 100
-        self.max_rotation = np.pi / 9
+        self.max_translation = CONFIGS['MAX_TRANSLATION']
+        self.max_rotation = np.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
         self.player_speed = 5 
         self.player_rot_speed = 5
         self.num_threads = num_threads
@@ -214,11 +214,13 @@ class Trainer:
         if save_model:
             torch.save(self.agent, save_path)
 
-    def plot_losses(self, losses,num_steps_per_epoch):
-        plt.figure()
+    def plot_losses(self, losses,num_steps_per_epoch, display = False):
+        fig = plt.figure()
         plt.plot(losses)
         plt.title(f'avegrage losses from each epoch ({num_steps_per_epoch} steps)')
-        plt.show()
+        if display:
+            plt.show()
+        plt.savefig()
 
             
 

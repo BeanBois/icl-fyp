@@ -1,20 +1,20 @@
 import torch 
 import numpy as np
 from tasks.twoD.game import GameInterface, GameMode, Action, PlayerState
+from configs import CONFIGS
 
 
-
-
-
-# 
-def get_random_noisy_action(max_x, max_y, max_rot, state_change_odds):
+# change this 
+def get_random_noisy_action(device):
     # paper get random noisy action from normal distribution
-    actions = torch.rand(3)
-    actions[0] *= max_x
-    actions[1] *= max_y
-    actions[2] *= max_rot
+    max_rot = torch.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
+    rot = torch.rand(1) * max_rot
+    translations = torch.zeros(2, device=device)
+    translations[0] = torch.cos(rot) * CONFIGS['MAX_TRANSLATION']
+    translations[1] = torch.sin(rot) * CONFIGS['MAX_TRANSLATION']
+    state_change_odds = torch.tensor([CONFIGS['STATE_CHANGE_ODDS']], device=device)
     roll = torch.multinomial(state_change_odds, num_samples=1)
-    actions = torch.cat([actions,roll])
+    actions = torch.cat([translations, rot ,roll], dim=-1)
     return actions
 
 
@@ -46,11 +46,6 @@ if __name__ == "__main__":
     agent.eval()
 
     # collect demos 
-    _max_translation = 1000
-    _max_x = 800
-    _max_y = 600 
-    _max_rot = 20
-    _state_change_odds = torch.tensor([0.5,0.5]) 
 
 
     game_interface = GameInterface(
@@ -90,7 +85,7 @@ if __name__ == "__main__":
     done = False
 
     while _t < CONFIGS['MAX_INFERENCE_ITER'] and not done:
-        random_noisy_action = get_random_noisy_action(_max_x,_max_y, _max_rot, _state_change_odds)
+        random_noisy_action = get_random_noisy_action(device)
         for k in range(num_diffusion_steps):
             predicted_noise = agent(
                 curr_obs,
