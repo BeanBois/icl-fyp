@@ -1,6 +1,6 @@
 # should store Game Code only
 from .game_aux import * 
-from random import random
+import random
 
 class Game:
     
@@ -25,7 +25,7 @@ class Game:
         self.objective = objective  # "eat_all" or "reach_goal"
         self.game_over = False
         self.game_won = False
-        self.font = pygame.font.Font(None, 36)
+        # self.font = pygame.font.Font(None, 36)
 
         self.setup_game()
 
@@ -76,16 +76,17 @@ class Game:
         print("-" * 25)
 
     def handle_events(self):
+        if self.game_over or self.game_won:
+            return False
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                return False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_r and (self.game_over or self.game_won):
-                    self.restart_game()
-                elif event.key == pygame.K_SPACE and not self.game_over and not self.game_won:
+            # if event.type == pygame.QUIT:
+            #     return False
+            if event.type == pygame.KEYDOWN:
+            #     if event.key == pygame.K_r and (self.game_over or self.game_won):
+            #         self.restart_game()
+                if event.key == pygame.K_SPACE and not self.game_over and not self.game_won:
                     self.player.alternate_state()
-        
-        # Handle continuous key presses
+            # Handle continuous key presses
         keys = pygame.key.get_pressed()
         if not self.game_over and not self.game_won:
             if keys[pygame.K_UP] or keys[pygame.K_w]:
@@ -97,13 +98,11 @@ class Game:
             if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
                 self.player.rotate_right()
 
-        
         return True
 
     def handle_action(self,action : Action):
-  
         if self.game_over or self.game_won:
-            self.restart_game()
+            return False
         
         # Handle continuous key presses
         self.player.move_with_action(action)

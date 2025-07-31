@@ -40,7 +40,8 @@ class PseudoDemoGenerator:
         self.sample_rate = sample_rate
         self.agent_key_points = None
         self.translation_scale = 500
-        self.max_translation = CONFIGS['MAX_TRANSLATION']
+        # change this to take in argument instead
+        self.max_translation = CONFIGS['TRAINING_MAX_TRANSLATION']
         self.max_rotation = np.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
         self.player_speed = 5 
         self.player_rot_speed = 5

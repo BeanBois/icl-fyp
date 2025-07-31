@@ -53,7 +53,7 @@ class Player:
         self.y = y
         self.angle = 0  # Facing direction in degrees
         self.size = 15
-        self.speed = 5
+        self.speed = 15
         self.rotation_speed = 5
         self.state = state
         self.screen_width = screen_width

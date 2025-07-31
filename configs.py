@@ -1,5 +1,8 @@
-CONFIGS = {
 
+_type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
+version = 0
+
+CONFIGS = {
     # AGENT CONFIGS
     'NUM_AGENT_NODES' : 4,
     'PRED_HORIZON' : 5,
@@ -8,7 +11,7 @@ CONFIGS = {
     'HEAD_DIM' : 16, # REPLACE NODE EMB DIM 
     'AGENT_STATE_EMB_DIM' : 16,
     'EDGE_POS_DIM': 2,
-    'MAX_TRANSLATION': 25,
+    'TRAINING_MAX_TRANSLATION' : 1000, # WIDTH^2 + HEIGHT^2 SQRT
     'MAX_ROTATION_DEG' : 20,
 
     # DEMO CONFIGS (BOTH)
@@ -27,13 +30,14 @@ CONFIGS = {
     'NUM_STEPS_PER_EPOCH' : 50,
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
-    'MODEL_FILE_PATH' :  "instant_policy_v0.pth",
+    'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
     'TRAINING_MAX_TRANSLATION' : 500, # WIDTH^2 + HEIGHT^2 SQRT
     'BATCH_SIZE' : 20,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 50,
-    'TESTING_MAX_TRANSLATION' : 1000, # WIDTH^2 + HEIGHT^2 SQRT
+    'TEST_NUM_DEMO_GIVEN' : 1,
+    'TESTING_MAX_UNIT_TRANSLATION' : 25, # WIDTH^2 + HEIGHT^2 SQRT
     'STATE_CHANGE_ODDS': (0.5, 0.5),
 
 }

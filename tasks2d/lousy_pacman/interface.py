@@ -85,9 +85,9 @@ class GameInterface:
             return obs 
     
     def _get_agent_info(self):
-        player_kp = np.array([v for k,v in self.player.get_keypoints().items()])
-        player_center = np.array((self.player.get_pos()))
+        player_kp = np.array([v for k,v in self.game.player.get_keypoints().items()])
+        player_center = np.array((self.game.player.get_pos()))
         player_pos = player_kp + player_center
-        player_state = self.player.get_state().value
+        player_state = self.game.player.get_state().value
         return player_pos, player_kp, player_state
     
