@@ -39,5 +39,7 @@ CONFIGS = {
     'TEST_NUM_DEMO_GIVEN' : 1,
     'TESTING_MAX_UNIT_TRANSLATION' : 25, # WIDTH^2 + HEIGHT^2 SQRT
     'STATE_CHANGE_ODDS': (0.5, 0.5),
+    'FIG_FILENAME' : f'avg_loss_ip_{_type}_v{version}',
+    
 
 }

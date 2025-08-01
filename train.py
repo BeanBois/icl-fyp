@@ -221,7 +221,7 @@ class Trainer:
         plt.title(f'avegrage losses from each epoch ({num_steps_per_epoch} steps)')
         if display:
             plt.show()
-        plt.savefig('average-losses')
+        plt.savefig(CONFIGS['FIG_FILENAME'])
 
             
 
