@@ -396,12 +396,12 @@ class InstantPolicy(nn.Module):
                     type_index = predicted_graph_node_idx_dict_by_type[NodeType.AGENT].index(node_index + _index_offset)
                     features = rho_action[NodeType.AGENT][type_index]
 
-                if node.type not in action_node_embd.keys():
-                    action_node_idx_dict_by_type[node.type] = [node_index]
-                    action_node_embd[node.type] =  features.view(1,-1) 
+                if action_node.type not in action_node_embd.keys():
+                    action_node_idx_dict_by_type[action_node.type] = [node_index]
+                    action_node_embd[action_node.type] =  features.view(1,-1) 
                 else:
-                    action_node_idx_dict_by_type[node.type].append(node_index)
-                    action_node_embd[node.type] = torch.cat([action_node_embd[node.type],features.view(1,-1)])
+                    action_node_idx_dict_by_type[action_node.type].append(node_index)
+                    action_node_embd[action_node.type] = torch.cat([action_node_embd[action_node.type],features.view(1,-1)])
 
             # then build edge emb for action graph
             action_edges = action_graph.get_action_edges()
