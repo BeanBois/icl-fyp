@@ -94,7 +94,7 @@ class InstantPolicy(nn.Module):
 
         # embedders
         self.agent_embedder = nn.Embedding(
-            self.num_agent_nodes * self.pred_horizon,
+            self.num_agent_nodes * (self.pred_horizon + 1), 
             self.node_embd_dim - self.agent_state_embd_dim, 
             device=self.device
         )
