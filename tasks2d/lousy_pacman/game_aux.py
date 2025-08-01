@@ -125,7 +125,12 @@ class Player:
     # TL, TR, BR, BL, center dictonary
     def get_pos(self):
         return (self.x, self.y)
-
+    
+    def get_orientation(self, mode = 'deg'):
+        if mode == 'deg':
+            return self.angle
+        else:
+            return np.deg2rad(self.angle)
     # illustration of keypoints:
     #  * (back-left)
     #  |  \ 

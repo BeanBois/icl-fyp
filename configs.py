@@ -1,11 +1,11 @@
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = 0
+version = 1
 
 CONFIGS = {
     # AGENT CONFIGS
     'NUM_AGENT_NODES' : 4,
-    'PRED_HORIZON' : 5,
+    'PRED_HORIZON' : 0,
     'HIDDEN_DIM' : 1024, # unused 
     'NUM_ATT_HEADS' : 4, # REPLACE NODE EBD DIM 
     'HEAD_DIM' : 16, # REPLACE NODE EMB DIM 
@@ -27,12 +27,12 @@ CONFIGS = {
     # TRAINING CONFIGS:
     'NUM_DIFFUSION_STEPS' : 500,
     'NUM_DEMO_GIVEN' : 3,
-    'NUM_STEPS_PER_EPOCH' : 50,
+    'NUM_STEPS_PER_EPOCH' : 100,
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
     'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
     'TRAINING_MAX_TRANSLATION' : 500, # WIDTH^2 + HEIGHT^2 SQRT
-    'BATCH_SIZE' : 20,
+    'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 50,

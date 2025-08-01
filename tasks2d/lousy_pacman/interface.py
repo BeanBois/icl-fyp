@@ -35,7 +35,7 @@ class GameInterface:
 
     # remove FPSA form here and just return pc
     def get_obs(self):
-        agent_pos, agent_kp, agent_state = self._get_agent_info()
+        agent_pos = self._get_agent_pos()
 
         agent_state = self.game.player.state # works now but maybe refactor
 
@@ -61,9 +61,9 @@ class GameInterface:
             'point-clouds': dense_point_clouds,
             'coords' : coords,
             # agent info
-            'agent_pos' : agent_pos,
-            'agent_state' : agent_state,
-            'agent_kp' : agent_kp, 
+            'agent-pos' : agent_pos,
+            'agent-state' : agent_state,
+            'agent-orientation' : self.game.player.get_orientation('deg'),
             #game info
             'done': self.running,
             'time' : self.t
@@ -84,10 +84,25 @@ class GameInterface:
             obs = self.get_obs()
             return obs 
     
-    def _get_agent_info(self):
-        player_kp = np.array([v for k,v in self.game.player.get_keypoints().items()])
-        player_center = np.array((self.game.player.get_pos()))
-        player_pos = player_kp + player_center
-        player_state = self.game.player.get_state().value
-        return player_pos, player_kp, player_state
+    def _get_agent_pos(self):
+        _, front, back_left, back_right = [v for _, v in self.game.player.get_keypoints(frame = 'self').items()]
+        center = self.game.player.get_pos()
+        center = np.array(center)
+        # player is a triangle so i want to capture the 3 edges of the triangle
+        # at player_ori == 0 degree, edges == (tl, bl, (tr+br)//2)
+        tri_points = np.array([front, back_left, back_right])
+        ori_in_deg = self.game.player.get_orientation(mode='deg')
+        R = self._rotation_matrix_2d(ori_in_deg) 
+
+        # rotate around center
+
+        rotated = (R @ tri_points.T).T
+        final = rotated + center
+        player_pos = np.vstack([center, final])
+        return player_pos   
     
+    def _rotation_matrix_2d(self, theta_deg):
+        theta = theta_deg/180 * np.pi
+        c, s = np.cos(theta), np.sin(theta)
+        return np.array([[c, -s],
+                        [s,  c]])

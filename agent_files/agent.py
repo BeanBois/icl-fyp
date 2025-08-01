@@ -408,5 +408,3 @@ class InstantPolicyAgent(nn.Module):
         translation = normalized_se2[..., :2] * self.max_translation
         rotation = normalized_se2[..., 2:3] * torch.pi  
         return torch.cat([translation, rotation], dim=-1)
-
-

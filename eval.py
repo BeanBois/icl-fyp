@@ -64,17 +64,34 @@ def action_tensor_to_obj(action_tensor):
     )
     
     return action_obj
+def set_device_recursive(obj, device):
+    """Recursively set device for all NN components"""
+    if hasattr(obj, 'device'):
+        obj.device = device
+    
+    # Handle nn.Module components
+    if hasattr(obj, 'to'):
+        obj.to(device)
+    
+    # Recursively check all attributes
+    for attr_name in dir(obj):
+        if not attr_name.startswith('_'):  # Skip private attributes
+            try:
+                attr = getattr(obj, attr_name)
+                if hasattr(attr, '__dict__'):  # Has attributes to explore
+                    set_device_recursive(attr, device)
+            except:
+                continue
 
 if __name__ == "__main__":
     from configs import CONFIGS
     import agent_files
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    agent = None
-    
     # Load the trained agent
     if str(device) == 'cpu':
         agent = torch.load(CONFIGS['MODEL_FILE_PATH'], weights_only=False, map_location=torch.device('cpu'))
+        set_device_recursive(agent, 'cpu')
     else:
         agent = torch.load(CONFIGS['MODEL_FILE_PATH'], weights_only=False)
     
