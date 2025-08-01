@@ -5,7 +5,7 @@ version = 1
 CONFIGS = {
     # AGENT CONFIGS
     'NUM_AGENT_NODES' : 4,
-    'PRED_HORIZON' : 0,
+    'PRED_HORIZON' : 5,
     'HIDDEN_DIM' : 1024, # unused 
     'NUM_ATT_HEADS' : 4, # REPLACE NODE EBD DIM 
     'HEAD_DIM' : 16, # REPLACE NODE EMB DIM 

@@ -142,9 +142,19 @@ class InstantPolicy(nn.Module):
         
             # x is used for agent state embedding
             x = index 
-            if graph.timestep > self.pred_horizon: # TODO : PROBLEM HERE 
-                x += (graph.timestep - self.pred_horizon) * self.num_agent_nodes
-            x = torch.tensor(x, device=self.device, dtype=torch.long)
+
+            if graph.timestep < self.pred_horizon:
+                x += graph.timestep * self.num_agent_nodes
+            else:
+                x += self.pred_horizon * self.num_agent_nodes
+
+            #### FIX HERE ####
+            # if graph.timestep > self.pred_horizon: # TODO : PROBLEM HERE 
+                # x += (graph.timestep - self.pred_horizon) * self.num_agent_nodes
+            #### FIX HERE ####
+
+
+            x = torch.tensor([x], device=self.device, dtype=torch.long)
             node_embd = None
             if node.type is NodeType.AGENT:
                 agent_state = torch.tensor([graph.agent_state.value],device = self.device).float()
