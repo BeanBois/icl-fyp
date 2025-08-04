@@ -24,4 +24,6 @@ export CUDA_VISIBLE_DEVICES=0
 source $PENV/bin/activate
 pip install -r "${WORK_DIR}/requirements.txt"
 
+# train geometry encoder first
+
 python3 -u "${WORK_DIR}/train.py"

@@ -70,6 +70,7 @@ class InstantPolicy(nn.Module):
     
     def __init__(self, 
                 device,
+                geometry_encoder,
                 num_agent_nodes = 4, 
                 pred_horizon = 5, 
                 num_att_heads = 16,
@@ -101,7 +102,8 @@ class InstantPolicy(nn.Module):
         self.agent_state_embedder = nn.Linear(1, self.agent_state_embd_dim, device=self.device)
 
         self.spatial_edge_embedding = SinCosEdgeEmbedding
-        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=self.node_embd_dim, device=self.device).to(self.device)
+        self.geometry_encoder = geometry_encoder
+        # self.geometry_encoder = GeometryEncoder2D(node_embd_dim=self.node_embd_dim, device=self.device).to(self.device)
         self.agent_cond_agent_edge_emb = nn.Embedding(1,self.edge_embd_dim, device=self.device)
 
         # components

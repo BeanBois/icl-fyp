@@ -9,6 +9,7 @@ class InstantPolicyAgent(nn.Module):
     def __init__(self,
                 device,
                 max_translation,
+                geometry_encoder,
                 num_diffusion_steps = 100,
                 num_agent_nodes = 4, 
                 pred_horizon = 5, 
@@ -21,6 +22,7 @@ class InstantPolicyAgent(nn.Module):
 
         
         self.policy = InstantPolicy(
+                geometry_encoder=geometry_encoder,
                 device=device, 
                 num_agent_nodes=num_agent_nodes,
                 pred_horizon=pred_horizon,

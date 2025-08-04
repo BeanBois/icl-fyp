@@ -64,6 +64,7 @@ def action_tensor_to_obj(action_tensor):
     )
     
     return action_obj
+
 def set_device_recursive(obj, device):
     """Recursively set device for all NN components"""
     if hasattr(obj, 'device'):
@@ -86,12 +87,16 @@ def set_device_recursive(obj, device):
 if __name__ == "__main__":
     from configs import CONFIGS
     import agent_files
-    
+    # train geometry encoder first
+
+    manual = True
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Load the trained agent
     if str(device) == 'cpu':
         agent = torch.load(CONFIGS['MODEL_FILE_PATH'], weights_only=False, map_location=torch.device('cpu'))
         set_device_recursive(agent, 'cpu')
+    
     else:
         agent = torch.load(CONFIGS['MODEL_FILE_PATH'], weights_only=False)
     
@@ -103,31 +108,34 @@ if __name__ == "__main__":
         mode=GameMode.DEMO_MODE,
         num_sampled_points=CONFIGS['NUM_SAMPLED_POINTCLOUDS']
     )
-    
     num_demos_given = CONFIGS['TEST_NUM_DEMO_GIVEN']
-    demo_length = CONFIGS['DEMO_LENGTH']
+    sampling_rate = CONFIGS['SAMPLING_RATE']
     provided_demos = []
     
+    # i want to automate these such that its like yk automated
     print(f"Collecting {num_demos_given} demonstrations...")
-    
-    for n in range(num_demos_given):
-        demo = []
-        curr_obs = game_interface.start_game()
-        demo.append(curr_obs)
+    if manual:
+        for n in range(num_demos_given):
+            game_interface.start_game()
+            step_count = 0
+            while game_interface.running:
+                game_interface.step()
+            
+            # Process demo to extract relevant observations
+            # Take evenly spaced samples from the demo
+            demo = game_interface.observations
+            if len(demo) > 1:
+                indices = np.linspace(0, len(demo)-1, min(len(demo), sampling_rate), dtype=int)
+                processed_demo = [demo[i] for i in indices]
+                provided_demos.append(processed_demo)
+            
+            game_interface.reset()
+    else:
+        # choose a config
+        # load config with game_interface.load_config()
+        # sample from demoset num_demo_given
+        # downsample with sampling_rate
         
-        step_count = 0
-        while game_interface.running:
-            obs = game_interface.step()
-            demo.append(obs)
-        
-        # Process demo to extract relevant observations
-        # Take evenly spaced samples from the demo
-        if len(demo) > 1:
-            indices = np.linspace(0, len(demo)-1, min(len(demo), 10), dtype=int)
-            processed_demo = [demo[i] for i in indices]
-            provided_demos.append(processed_demo)
-        
-        game_interface.reset()
     
     print(f"Collected {len(provided_demos)} demonstrations")
     

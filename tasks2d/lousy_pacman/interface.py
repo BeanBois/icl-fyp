@@ -16,17 +16,20 @@ class GameInterface:
         self.t = 0
         self.num_sampled_points = num_sampled_points
         self.mode = mode
+        self.observations = []
 
     def start_game(self):
         self.game.draw()
         self.game.clock.tick(60)
         obs = self.get_obs()
+        self.observations.append(obs)
         return obs 
   
     def reset(self):
         self.game.restart_game()
         self.running = True
         self.t = 0
+        self.observations = []
 
     def change_mode(self,mode):
         self.mode = mode
@@ -55,8 +58,7 @@ class GameInterface:
         valid_points = np.where(mask)
         dense_point_clouds = raw_dense_point_clouds[valid_points]
         coords = raw_coords[valid_points]
-
-        return {
+        obs =  {
             #segmented point clouds 
             'point-clouds': dense_point_clouds,
             'coords' : coords,
@@ -68,6 +70,8 @@ class GameInterface:
             'done': self.running,
             'time' : self.t
         }
+        self.observations.append(obs)
+        return obs 
 
     def step(self,action = None):
         if self.running:
@@ -84,6 +88,12 @@ class GameInterface:
             obs = self.get_obs()
             return obs 
     
+    def set_initial_config(self,filename):
+        self.game.load_config(filename)
+
+    def save_config(self,filename):
+        self.game.save_config(filename)
+
     def _get_agent_pos(self):
         _, front, back_left, back_right = [v for _, v in self.game.player.get_keypoints(frame = 'self').items()]
         center = self.game.player.get_pos()

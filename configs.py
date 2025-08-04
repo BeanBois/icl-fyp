@@ -1,6 +1,6 @@
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = 1
+version = 2
 
 CONFIGS = {
     # AGENT CONFIGS
@@ -20,7 +20,7 @@ CONFIGS = {
     "DEMO_MAX_LENGTH" : 6,
     'DEMO_MIN_LENGTH' : 2,
     # DEMO GIVEN CONFIGS
-    "DEMO_LENGTH" : 6,
+    'SAMPLING_RATE' : 4,
 
 
 

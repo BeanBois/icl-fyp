@@ -4,6 +4,10 @@ from graph import LocalGraph, DemoGraph, ContextGraph, ActionGraph
 
 # import game
 from tasks2d import  LousyPacmanPseudoGame as  PseudoGame
+from tasks2d import  LousyPacmanPseudoScreenHeight as  SCREEN_HEIGHT
+from tasks2d import  LousyPacmanPseudoScreenWidth as  SCREEN_WIDTH
+
+
 
 # import agent
 from agent_files import InstantPolicyAgent
@@ -46,6 +50,8 @@ class PseudoDemoGenerator:
         self.player_speed = 5 
         self.player_rot_speed = 5
         self.num_threads = num_threads
+        self.biased_odds = 0.1
+        self.augmented = True
         
         # Thread-local storage for agent keypoints
         self._thread_local = threading.local()
@@ -103,9 +109,11 @@ class PseudoDemoGenerator:
     
     def _run_game(self, biased, augmented):
         max_retries = 1000
+        player_starting_pos =(random.randint(0,SCREEN_WIDTH), random.randint(0,SCREEN_HEIGHT))
         for attempt in range(max_retries):
             try: 
                 pseudo_demo = PseudoGame(
+                    player_starting_pos=player_starting_pos,
                     max_num_sampled_waypoints=self.max_num_waypoints, 
                     min_num_sampled_waypoints=self.min_num_waypoints, 
                     biased=biased, 
@@ -124,8 +132,8 @@ class PseudoDemoGenerator:
     def _get_context(self):
         context = []
         for _ in range(self.num_demos - 1):
-            biased = random.random() < 0.5 
-            augmented = True 
+            biased = random.random() < self.biased_odds
+            augmented = self.augmented
             pseudo_demo = self._run_game(biased=biased, augmented=augmented)
             observations = pseudo_demo.observations
             sampled_obs = observations[::self.sample_rate]
@@ -230,12 +238,20 @@ class Trainer:
 # Usage example:
 if __name__ == "__main__":
     from configs import CONFIGS
+    from agent_files import GeometryEncoder2D, full_train, initialise_geometry_encoder
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+    # train geometry encoder
+    geometry_encoder_filename = 'geometry_encoder_2d.pth'
+    node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
+    full_train(node_embd_dim, device, filename=geometry_encoder_filename)
+    model = GeometryEncoder2D(node_embd_dim=node_embd_dim, device=device).to(device)
+    geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 
     # Initialize agent
     agent = InstantPolicyAgent(
                 device=device, 
+                geometry_encoder=geometry_encoder,
                 max_translation=CONFIGS['TRAINING_MAX_TRANSLATION'],
                 num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
                 num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
@@ -255,7 +271,6 @@ if __name__ == "__main__":
                       min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
                       batch_size=CONFIGS['BATCH_SIZE']
                       )
-    
     
     # Train the model
     trainer.full_training(

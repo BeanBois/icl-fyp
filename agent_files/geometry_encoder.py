@@ -476,10 +476,8 @@ def generate_training_data_multi_object(device, num_samples=1000):
             
             # Extract object pixels (now returns dict of object groups)
             object_pixel_groups = extract_object_pixels_from_game(pseudogame, device)
-            
             # Generate query points
             positive_queries, negative_queries, object_labels = generate_query_points_2d_multi_object(pseudogame, device)
-            
             if len(object_pixel_groups) > 0 and positive_queries.shape[0] > 0:
                 # Combine all object pixels into one point cloud for the geometry encoder
                 all_object_pixels = []
@@ -487,7 +485,7 @@ def generate_training_data_multi_object(device, num_samples=1000):
                     all_object_pixels.append(obj_pixels)
                 
                 if all_object_pixels:
-                    combined_point_cloud = torch.cat(all_object_pixels, dim=0, device=device)
+                    combined_point_cloud = torch.cat(all_object_pixels, dim=0)
                     
                     training_data.append({
                         'point_cloud': combined_point_cloud,
@@ -517,7 +515,7 @@ def train_occupancy_network_multi_object(device, num_epochs=100, lr=1e-3, node_e
     Train the occupancy network for pre-training geometry encoder with multiple objects
     """
     print("Generating training data for multiple objects...")
-    training_data = generate_training_data_multi_object(num_samples=100)
+    training_data = generate_training_data_multi_object(device,num_samples=100)
     print(f"Generated {len(training_data)} training samples")
     
     if len(training_data) == 0:
@@ -526,7 +524,7 @@ def train_occupancy_network_multi_object(device, num_epochs=100, lr=1e-3, node_e
     
     # Initialize model
     model = OccupancyNetwork2D(node_embd_dim=node_embd_dim, device=device).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
     print("Training occupancy network with multiple objects...")
     for epoch in range(num_epochs):
@@ -595,6 +593,12 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
         print(f"Error loading model: {e}")
         return None
 
+
+def full_train(node_embd_dim, device, filename = 'geometry_encoder_2d.pth'):
+    trained_model = train_occupancy_network_multi_object(device, num_epochs=50, node_embd_dim=node_embd_dim)
+    if trained_model:
+        torch.save(trained_model.geometry_encoder.state_dict(), filename)
+
 # ===========================
 # EXAMPLE USAGE
 # ===========================
@@ -602,8 +606,7 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
 if __name__ == "__main__":
     # Example: Create and test geometry encoder
     node_embd_dim = 16  # Match your agent configuration
-    geometry_encoder = GeometryEncoder2D(node_embd_dim=node_embd_dim)
-    
+    device = 'cpu'    
     # Example input: some 2D coordinates
     # sample_coords = torch.tensor([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]], dtype=torch.float32)
     
@@ -617,11 +620,14 @@ if __name__ == "__main__":
     ############################################################################
 
     # Example: Train occupancy network (if PseudoGame is available)
-    trained_model = train_occupancy_network_multi_object(num_epochs=50, node_embd_dim=node_embd_dim)
-    if trained_model:
-        torch.save(trained_model.geometry_encoder.state_dict(), 'geometry_encoder_2d.pth')
+    # trained_model = train_occupancy_network_multi_object(device, num_epochs=50, node_embd_dim=node_embd_dim)
+    # if trained_model:
+    #     torch.save(trained_model.geometry_encoder.state_dict(), 'geometry_encoder_2d.pth')
     
-    print("Geometry encoder ready for integration with Instant Policy!")
+    # print("Geometry encoder ready for integration with Instant Policy!")
+    # geometry_encoder = GeometryEncoder2D(node_embd_dim=node_embd_dim, device=device)
+    # geometry_encoder = initialise_geometry_encoder(geometry_encoder, 'geometry_encoder_2d.pth',device=device)
+    
 
 
 
