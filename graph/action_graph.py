@@ -85,10 +85,10 @@ class ActionGraph:
         if predicted_graph.agent_state == PlayerState.EATING:
             for predicted_agent_node in predicted_agent_nodes:
                 for obj_node, i in enumerate(predicted_graph.object_nodes):
-                    if type(obj_node) == EdibleNode:
+                    if issubclass(type(obj_node), AttractorNode):
                         collided, collision_angle = self._check_collision(predicted_agent_nodes, obj_node)
                         if collided:
-                            predicted_graph.object_nodes[i].set_eaten()
+                            predicted_graph.object_nodes[i].set_passed()
 
         # dont care about collisions for now
         # with updated agent_nodes, we need to see if the updated nodes collides with any obstacles. 

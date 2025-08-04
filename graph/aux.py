@@ -4,8 +4,7 @@ from enum import Enum
 class NodeType(Enum):
     AGENT = b'000'
     ATTRACTOR = b'001'
-    OBSTACLE = b'010'
-    GOAL = b'100'
+    AVOIDER = b'010'
 
 # 1 hot encoding
 class EdgeType(Enum):
@@ -62,33 +61,34 @@ class AgentNode(Node):
         self.tag = tag
         self.orientation = orientation
     
+class AttractorNode(Node):
+    def __init__(self, pos, time):
+        super().__init__(pos,time)
+        self.type = NodeType.ATTRACTOR
+        self.passed = False 
 
+    def set_passed(self):
+        self.passed = True 
 
-class EdibleNode(Node):
+class EdibleNode(AttractorNode):
 
     def __init__(self, pos,time):
         super().__init__(pos,time)
-        self.type = NodeType.ATTRACTOR
-        self.eaten = False 
-    
-    def set_eaten(self):
-        self.eaten = True
 
+class GoalNode(AttractorNode):
+
+    def __init__(self, pos,time):
+        super().__init__(pos,time)
 
 
 class ObstacleNode(Node):
 
     def __init__(self, pos,time):
         super().__init__(pos,time)
-        self.type = NodeType.OBSTACLE
+        self.type = NodeType.AVOIDER
 
 
 
-class GoalNode(Node):
-
-    def __init__(self, pos,time):
-        super().__init__(pos,time)
-        self.type = NodeType.GOAL
 
 
 
