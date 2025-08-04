@@ -48,5 +48,7 @@ Idea 1: Projecting Actions and Local Graph into a Feature space s.t addition/sub
                 - and that we can perform operations : G(T) => LG(T)  &   A(T), LG(T) => LG'(T) 
                 - we are able to map LG'(T) to a semantic state F(M) (Encoder)
 
+            * Eg semantics for us : Move gripper towards object, Move Around object, 
+
 
 """
