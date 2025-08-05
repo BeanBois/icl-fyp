@@ -59,7 +59,7 @@ def action_tensor_to_obj(action_tensor):
     
     action_obj = Action(
         forward_movement=forward_movement,
-        rotation=rotation_deg,
+        rotation_deg=rotation_deg,
         state_change=player_state
     )
     
