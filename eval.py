@@ -135,6 +135,7 @@ if __name__ == "__main__":
         # load config with game_interface.load_config()
         # sample from demoset num_demo_given
         # downsample with sampling_rate
+        pass 
         
     
     print(f"Collected {len(provided_demos)} demonstrations")
