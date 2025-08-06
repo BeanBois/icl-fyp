@@ -221,9 +221,9 @@ class Trainer:
                 for param_group in self.optimizer.param_groups:
                     param_group['lr'] *= 0.99
             avg_losses.append(avg_loss)
-        self.plot_losses(avg_losses,num_steps_per_epoch)
         if save_model:
             torch.save(self.agent, save_path)
+        self.plot_losses(avg_losses,num_steps_per_epoch)
 
     def plot_losses(self, losses,num_steps_per_epoch, display = False):
         fig = plt.figure()
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     geometry_encoder_filename = 'geometry_encoder_2d.pth'
     node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
     grouping_radius = CONFIGS['GROUPING_RADIUS']
-    # full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename)
+    full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= 500, num_samples= 1000)
     model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 

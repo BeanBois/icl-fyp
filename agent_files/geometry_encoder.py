@@ -640,12 +640,12 @@ def generate_training_data_multi_object(device, num_samples=1000):
 # TRAINING FUNCTIONS
 # ===========================
 
-def train_occupancy_network_multi_object(device, radius, num_epochs=100, lr=1e-3, node_embd_dim=16):
+def train_occupancy_network_multi_object(device, radius, num_epochs=100, lr=1e-3, node_embd_dim=16, num_samples = 10000):
     """
     Train the occupancy network for pre-training geometry encoder with multiple objects
     """
     print("Generating training data for multiple objects...")
-    training_data = generate_training_data_multi_object(device,num_samples=100)
+    training_data = generate_training_data_multi_object(device,num_samples=num_samples)
     print(f"Generated {len(training_data)} training samples")
     
     if len(training_data) == 0:
@@ -724,8 +724,8 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
         return None
 
 
-def full_train(node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth'):
-    trained_model = train_occupancy_network_multi_object(device, radius=radius, num_epochs=50, node_embd_dim=node_embd_dim)
+def full_train(node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000):
+    trained_model = train_occupancy_network_multi_object(device, radius=radius, num_epochs=num_epochs, node_embd_dim=node_embd_dim, num_samples=num_samples)
     if trained_model:
         torch.save(trained_model.geometry_encoder.state_dict(), filename)
         
