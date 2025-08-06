@@ -249,7 +249,8 @@ class InstantPolicy(nn.Module):
     def forward(self, 
                 curr_obs, # 1 
                 provided_demos, # list of demos, whereby each demo contains a list of observation,
-                actions, # list of actions?
+                noisy_actions, # list of actions?
+                prev_stacked_actions,
                 ):
 
         # pass obs t
@@ -363,11 +364,14 @@ class InstantPolicy(nn.Module):
         # 
         # reconstruct node embedding for current_graph.agent_nodes, first with phi
         # then use curr_node_emb and actions to construct predictions
-        predictions = torch.zeros((actions.shape[0], self.num_agent_nodes, self.hidden_dim),device = self.device)
+        predictions = torch.zeros((noisy_actions.shape[0], self.num_agent_nodes, self.hidden_dim),device = self.device)
         t = 0
-        acc_action = None 
-        for action in actions:
 
+
+        # for action in actions:
+        for noisy_action, prev_stacked_action in zip(noisy_actions, prev_stacked_actions):
+
+            action = self._add_actions(pre = prev_stacked_action, post = noisy_action)
             action_obj = self._recover_action_obj(action)
             action_graph = ActionGraph(curr_graph, action_obj)
 
@@ -444,6 +448,12 @@ class InstantPolicy(nn.Module):
 
         return predictions
 
+    def _add_actions(self, pre, post):
+        post[:2] += pre[:2]
+        post[2] = (post[2] + pre[2]) % (2 * np.pi)  # add theta
+
+        return post 
+    
     def _recover_action_obj(self, action):
         if action.device == 'cpu':
             x, y, theta, state_change = action

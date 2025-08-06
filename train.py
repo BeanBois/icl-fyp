@@ -66,27 +66,33 @@ class PseudoDemoGenerator:
             curr_obs_batch = []
             context_batch = []
             clean_actions_list = []
+            prev_stacked_actions_list = []
+
             
             for future in as_completed(futures):
-                curr_obs, context, clean_actions = future.result()
+                curr_obs, context, clean_actions, prev_stacked_actions = future.result()
                 curr_obs_batch.append(curr_obs)
                 context_batch.append(context)
                 clean_actions_list.append(clean_actions)
+                prev_stacked_actions_list.append(prev_stacked_actions)
+
         
         # Stack clean actions into a single tensor [batch_size, pred_horizon, 4]
         clean_actions_batch = torch.stack(clean_actions_list, dim=0)
+        prev_stacked_actions_batch = torch.stack(prev_stacked_actions_list, dim=0)
+
         
         # Store agent keypoints from the last generated sample (they should all be the same)
         if hasattr(self._thread_local, 'agent_key_points') and self._thread_local.agent_key_points is not None:
             self.agent_key_points = self._thread_local.agent_key_points
         
-        return curr_obs_batch, context_batch, clean_actions_batch
+        return curr_obs_batch, context_batch, clean_actions_batch, prev_stacked_actions_batch
 
     def _generate_single_sample(self) -> Tuple[dict, List, torch.Tensor]:
         """Generate a single training sample (thread-safe)"""
         context = self._get_context()   
-        curr_obs, clean_actions, future_obs = self._get_ground_truth()
-        return curr_obs, context, clean_actions
+        curr_obs, clean_actions, prev_stacked_actions = self._get_ground_truth()
+        return curr_obs, context, clean_actions, prev_stacked_actions
 
     def get_agent_keypoints(self):
         if self.agent_key_points is None:
@@ -140,17 +146,21 @@ class PseudoDemoGenerator:
             dtype=torch.float, 
             device=self.device
         )          
-        actions = self._process_actions(actions)
+        prev_stacked_actions = self._process_actions(actions)
         actions = actions[::self.sample_rate]
-        return true_obs[0], actions, true_obs[1:]
+        prev_stacked_actions = prev_stacked_actions[::self.sample_rate]
+        return true_obs[0], actions, prev_stacked_actions
     
     def _process_actions(self, actions):
-        for i in range(len(actions) - 1):
-            actions[i+1, :2] += actions[i, :2]  # add x,y
-            actions[i+1, 2] = (actions[i+1, 2] + actions[i, 2]) % (2 * np.pi)  # add theta
-        return actions
+        stacked_actions = torch.zeros(actions.shape, device = self.device)
+        for i in range(1,actions.shape[0]):
+            stacked_actions[i, : 2] = stacked_actions[i-1, :2 ] + actions[i-1, :2] # add trans
+            stacked_actions[i,  2] = (stacked_actions[i-1, 2 ] + actions[i-1, 2]) % (2 * np.pi) # add theta
+            stacked_actions[i,3] = actions[i-1,3]
+        return stacked_actions
 
     
+
 
 class Trainer: 
 
@@ -170,12 +180,12 @@ class Trainer:
     def train_step(self):
         self.optimizer.zero_grad()
         total_loss = 0.0
-        curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
+        curr_obs_batch, context_batch, clean_actions_batch, prev_stacked_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
         
         for i in range(self.batch_size):
-            curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
+            curr_obs, context, clean_actions, prev_stacked_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i], prev_stacked_actions_batch[i]
             # Agent already computes the correct noise internally
-            predicted_noise, actual_noise = self.agent(curr_obs, context, clean_actions)
+            predicted_noise, actual_noise = self.agent(curr_obs, context, clean_actions, prev_stacked_actions)
             # Both should be [batch, 4] - action space noise
             assert predicted_noise.shape == actual_noise.shape, f"Shape mismatch: {predicted_noise.shape} vs {actual_noise.shape}"
 
@@ -229,15 +239,18 @@ class Trainer:
 
 # Usage example:
 if __name__ == "__main__":
-    from configs import CONFIGS
+    from configs import CONFIGS, version, _type
     from agent_files import GeometryEncoder2D, full_train, initialise_geometry_encoder
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
+
+    # print statement
+    print(f'training agent: {_type}, version: {version}')
     # train geometry encoder
     geometry_encoder_filename = 'geometry_encoder_2d.pth'
     node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
     grouping_radius = CONFIGS['GROUPING_RADIUS']
-    full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename)
+    # full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename)
     model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 

@@ -67,13 +67,14 @@ class InstantPolicyAgent(nn.Module):
     def forward(self,
                 curr_obs,
                 context,
-                clean_actions):
+                clean_actions,
+                prev_stacked_actions):
         # need to use clean actions to generate noisy actions 
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
         noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large')
 
-        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device) # N x self.num_agent_nodes x self.node_emb_dim
+        node_embs = self.policy(curr_obs, context, noisy_actions, prev_stacked_actions).to(self.device) # N x self.num_agent_nodes x self.node_emb_dim
         aggregated_features = node_embs.mean(dim=1)
 
         # Predict noise components

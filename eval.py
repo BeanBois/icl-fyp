@@ -8,7 +8,7 @@ from configs import CONFIGS
 
 def get_random_noisy_action(device):
     """Generate initial noisy action for diffusion process"""
-    max_rot = torch.tensor(CONFIGS['MAX_ROTATION_DEG'], device=device)
+    max_rot = torch.tensor(CONFIGS['TESTING_MAX_UNIT_ROTATION'], device=device)
     max_rot = torch.deg2rad(max_rot)
     rot = (torch.rand(1, device=device) - 0.5) * 2 * max_rot  # [-max_rot, max_rot]
     
@@ -87,7 +87,7 @@ def action_tensor_to_obj(action_tensor):
     rotation_deg = np.rad2deg(rotation)
     
     # Convert binary state to PlayerState
-    player_state = PlayerState.EATING if state_change > 0 else PlayerState.NOT_EATING
+    player_state = PlayerState.EATING if state_change > 0.5 else PlayerState.NOT_EATING
     
     action_obj = Action(
         forward_movement=forward_movement,
@@ -187,6 +187,7 @@ if __name__ == "__main__":
     done = False
     
     print("Starting evaluation...")
+    prev_stacked_actions = torch.zeros(4, device = device)
     
     with torch.no_grad():  # Important for inference
         while t < CONFIGS['MAX_INFERENCE_ITER'] and not done:
@@ -204,7 +205,8 @@ if __name__ == "__main__":
                 # predicted_noise, _ = agent(
                 #     curr_obs,
                 #     provided_demos,
-                #     noisy_actions
+                #     noisy_actions,
+                #     prev_stacked_actions
                 # )
                 
                 # # DDIM denoising step
@@ -231,7 +233,9 @@ if __name__ == "__main__":
                 predicted_noise, _ = agent(
                     curr_obs,
                     provided_demos,
-                    noisy_actions
+                    noisy_actions,
+                    prev_stacked_actions
+
                 )
                 
                 # DDIM denoising step
@@ -261,12 +265,19 @@ if __name__ == "__main__":
             noisy_actions = torch.randn(1, 4, device=device) * 5  # Much smaller
             
             # Single prediction at middle timestep
-            predicted_noise, _ = agent(curr_obs, provided_demos, noisy_actions)
+            predicted_noise, _ = agent(curr_obs, provided_demos, noisy_actions, prev_stacked_actions)
             
             # Direct clean prediction
             clean_actions = noisy_actions - predicted_noise  # Simple subtraction
             action_obj = action_tensor_to_obj(clean_actions)
             
+
+            # stack actions 
+            prev_stacked_actions[:2] += clean_actions[:2]
+            prev_stacked_actions[2] = (clean_actions[2] + prev_stacked_actions[2]) % (2 * torch.pi)
+            prev_stacked_actions[3] = clean_actions[3]
+
+
             # Take step in environment
             curr_obs = game_interface.step(action_obj)
             done = curr_obs.get('done', False)
