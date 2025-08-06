@@ -103,6 +103,61 @@ def nearest_centroid_grouping(points, centroids, device, max_points_per_group=32
     
     return grouped_indices, grouped_points
 
+def ball_query_grouping(points, centroids, radius, max_points_per_group=32, device='cpu'):
+    """
+    Ball query grouping as described in PointNet++
+    Args:
+        points: [N, 2] all point coordinates
+        centroids: [M, 2] centroid coordinates  
+        radius: float, search radius
+        max_points_per_group: max points per group (for padding)
+    Returns:
+        grouped_indices: [M, max_points_per_group] indices (-1 for padding)
+        grouped_points: [M, max_points_per_group, 2] grouped point coordinates
+    """
+    N = points.shape[0]
+    M = centroids.shape[0]
+    
+    if N == 0 or M == 0:
+        return torch.full((M, max_points_per_group), -1, dtype=torch.long, device=device), \
+               torch.zeros((M, max_points_per_group, 2), device=device)
+    
+    # Calculate distances from each centroid to all points
+    distances = torch.cdist(centroids.unsqueeze(0), points.unsqueeze(0)).squeeze(0)  # [M, N]
+    
+    grouped_indices = torch.full((M, max_points_per_group), -1, dtype=torch.long, device=device)
+    grouped_points = torch.zeros((M, max_points_per_group, 2), device=device)
+    
+    for centroid_idx in range(M):
+        # Find all points within radius
+        mask = distances[centroid_idx] <= radius
+        candidate_points = torch.where(mask)[0]
+        
+        if len(candidate_points) == 0:
+            # No points in radius - use centroid itself
+            grouped_points[centroid_idx, 0] = centroids[centroid_idx]
+            continue
+        
+        # Handle different cases based on number of points found
+        if len(candidate_points) > max_points_per_group:
+            # Too many points - randomly sample
+            perm = torch.randperm(len(candidate_points), device=device)[:max_points_per_group]
+            selected_indices = candidate_points[perm]
+        else:
+            # Not enough points - pad by repeating
+            selected_indices = candidate_points
+            if len(candidate_points) < max_points_per_group:
+                # Repeat points to reach max_points_per_group
+                padding_needed = max_points_per_group - len(candidate_points)
+                repeat_indices = candidate_points[torch.randint(0, len(candidate_points), 
+                                                              (padding_needed,), device=device)]
+                selected_indices = torch.cat([selected_indices, repeat_indices])
+        
+        grouped_indices[centroid_idx, :len(selected_indices)] = selected_indices
+        grouped_points[centroid_idx, :len(selected_indices)] = points[selected_indices]
+    
+    return grouped_indices, grouped_points
+
 def high_frequency_encoding_2d(relative_positions, device, num_frequencies=10):
     """
     Apply high-frequency sinusoidal encoding for 2D coordinates
@@ -178,10 +233,11 @@ class PointNetLayer(nn.Module):
 # ===========================
 
 class SetAbstractionLayer(nn.Module):
-    def __init__(self, num_centers, device, max_points_per_group=32, output_dim=16):
+    def __init__(self, num_centers, radius, device, max_points_per_group=32, output_dim=16):
         super().__init__()
         self.device = device
         self.num_centers = num_centers
+        self.radius = radius
         self.max_points_per_group = max_points_per_group
 
 
@@ -189,7 +245,7 @@ class SetAbstractionLayer(nn.Module):
         self.pointnet = PointNetLayer(
             input_dim=40,  # High-frequency encoding for 2D
             output_dim=output_dim,
-            hidden_dims=[64, 128],
+            hidden_dims=[64, 128], # vibes params
             device=self.device
         ).to(self.device)
     
@@ -209,9 +265,14 @@ class SetAbstractionLayer(nn.Module):
         sampled_indices = furthest_point_sampling(points, self.num_centers, device=self.device)
         centroids = points[sampled_indices]  # [num_centers, 2]
         
-        # Step 2: Group points to nearest centroids
-        grouped_indices, grouped_points = nearest_centroid_grouping(
-            points, centroids, device=self.device, max_points_per_group=self.max_points_per_group
+        # # Step 2: Group points to nearest centroids
+        # grouped_indices, grouped_points = nearest_centroid_grouping(
+        #     points, centroids, device=self.device, max_points_per_group=self.max_points_per_group
+        # )
+        # Step 2: Group points 
+        grouped_indices, grouped_points = ball_query_grouping(
+            points, centroids, self.radius, device=self.device, 
+            max_points_per_group=self.max_points_per_group
         )
         
         # Step 3: Re-center points relative to their assigned centroids
@@ -226,6 +287,75 @@ class SetAbstractionLayer(nn.Module):
         
         return features, centroids
 
+
+class MultiScaleSetAbstractionLayer(nn.Module):
+    """
+    Multi-Scale Grouping (MSG) version as described in PointNet++
+    """
+    def __init__(self, num_centers, radii, device, max_points_per_group=32, output_dims=None):
+        super().__init__()
+        self.device = device
+        self.num_centers = num_centers
+        self.radii = radii  # List of radii for different scales
+        self.max_points_per_group = max_points_per_group
+        
+        if output_dims is None:
+            output_dims = [64] * len(radii)  # Default output dims for each scale
+        
+        # Create separate PointNets for each scale
+        self.pointnets = nn.ModuleList()
+        for i, output_dim in enumerate(output_dims):
+            pointnet = PointNetLayer(
+                input_dim=40,  # High-frequency encoding for 2D
+                output_dim=output_dim,
+                hidden_dims=[64, 128],
+                device=self.device
+            ).to(self.device)
+            self.pointnets.append(pointnet)
+        
+        self.total_output_dim = sum(output_dims)
+    
+    def forward(self, points):
+        """
+        Args:
+            points: [N, 2] point coordinates
+        Returns:
+            features: [num_centers, total_output_dim] concatenated multi-scale features
+            centroids: [num_centers, 2] centroid positions
+        """
+        if points.shape[0] == 0:
+            return torch.zeros(0, self.total_output_dim, device=self.device), \
+                   torch.zeros(0, 2, device=self.device)
+        
+        # Step 1: Sample centroids using FPS (same for all scales)
+        sampled_indices = furthest_point_sampling(points, self.num_centers, device=self.device)
+        centroids = points[sampled_indices]  # [num_centers, 2]
+        
+        # Step 2: Process each scale separately
+        scale_features = []
+        
+        for scale_idx, radius in enumerate(self.radii):
+            # Group points at this scale
+            grouped_indices, grouped_points = ball_query_grouping(
+                points, centroids, radius, device=self.device,
+                max_points_per_group=self.max_points_per_group
+            )
+            
+            # Re-center points relative to centroids
+            centroids_expanded = centroids.unsqueeze(1)
+            relative_positions = grouped_points - centroids_expanded
+            
+            # Apply high-frequency encoding
+            encoded_positions = high_frequency_encoding_2d(relative_positions, device=self.device)
+            
+            # Apply scale-specific PointNet
+            features = self.pointnets[scale_idx](encoded_positions)
+            scale_features.append(features)
+        
+        # Step 3: Concatenate features from all scales
+        combined_features = torch.cat(scale_features, dim=-1)  # [num_centers, total_output_dim]
+        
+        return combined_features, centroids
 # ===========================
 # GEOMETRY ENCODER (SIMPLE VERSION)
 # ===========================
@@ -235,12 +365,12 @@ class GeometryEncoder2D(nn.Module):
     Simple geometry encoder that outputs node_embd_dim features directly
     Follows Instant Policy paper: 2 Set Abstraction layers, 16 output nodes
     """
-    def __init__(self, device, node_embd_dim=16):
+    def __init__(self, radius, device, node_embd_dim=16):
         super().__init__()
         self.device = device
         # Two Set Abstraction layers as described in Instant Policy paper
-        self.sa_layer1 = SetAbstractionLayer(num_centers=32, output_dim=64, device=self.device).to(self.device)
-        self.sa_layer2 = SetAbstractionLayer(num_centers=16, output_dim=node_embd_dim, device=self.device).to(self.device)
+        self.sa_layer1 = SetAbstractionLayer(num_centers=32, radius=radius, output_dim=64, device=self.device).to(self.device)
+        self.sa_layer2 = SetAbstractionLayer(num_centers=16, radius=radius, output_dim=node_embd_dim, device=self.device).to(self.device)
     
     def forward(self, point_cloud_2d):
         """
@@ -321,10 +451,10 @@ class OccupancyNetwork2D(nn.Module):
     """
     Complete occupancy network for pre-training geometry encoder
     """
-    def __init__(self, device, node_embd_dim=16):
+    def __init__(self, radius, device, node_embd_dim=16):
         super().__init__()
         self.device = device
-        self.geometry_encoder = GeometryEncoder2D(node_embd_dim=node_embd_dim, device=self.device).to(self.device)
+        self.geometry_encoder = GeometryEncoder2D(radius=radius, node_embd_dim=node_embd_dim, device=self.device).to(self.device)
         self.occupancy_decoder = OccupancyDecoder2D(feature_dim=node_embd_dim, device=self.device).to(self.device)
     
     def forward(self, point_cloud_2d, query_points_2d):
@@ -510,7 +640,7 @@ def generate_training_data_multi_object(device, num_samples=1000):
 # TRAINING FUNCTIONS
 # ===========================
 
-def train_occupancy_network_multi_object(device, num_epochs=100, lr=1e-3, node_embd_dim=16):
+def train_occupancy_network_multi_object(device, radius, num_epochs=100, lr=1e-3, node_embd_dim=16):
     """
     Train the occupancy network for pre-training geometry encoder with multiple objects
     """
@@ -523,7 +653,7 @@ def train_occupancy_network_multi_object(device, num_epochs=100, lr=1e-3, node_e
         return None
     
     # Initialize model
-    model = OccupancyNetwork2D(node_embd_dim=node_embd_dim, device=device).to(device)
+    model = OccupancyNetwork2D(radius = radius, node_embd_dim=node_embd_dim, device=device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
     print("Training occupancy network with multiple objects...")
@@ -594,10 +724,11 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
         return None
 
 
-def full_train(node_embd_dim, device, filename = 'geometry_encoder_2d.pth'):
-    trained_model = train_occupancy_network_multi_object(device, num_epochs=50, node_embd_dim=node_embd_dim)
+def full_train(node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth'):
+    trained_model = train_occupancy_network_multi_object(device, radius=radius, num_epochs=50, node_embd_dim=node_embd_dim)
     if trained_model:
         torch.save(trained_model.geometry_encoder.state_dict(), filename)
+        
 
 # ===========================
 # EXAMPLE USAGE

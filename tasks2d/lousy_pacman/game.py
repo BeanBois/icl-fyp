@@ -153,12 +153,16 @@ class Game:
     
     def restart_game(self):
         self.player = Player(self.player_start_pos[0], self.player_start_pos[1])
-        self.edibles = []
-        self.obstacles = []
-        self.goal = None
+        # reset variables 
+        for edible in self.edibles:
+            edible.eaten = False
+        
+        # self.edibles = []
+        # self.obstacles = []
+        # self.goal = None
         self.game_over = False
         self.game_won = False
-        self.setup_game()
+        # self.setup_game()
     
     def end_game(self):
         pygame.quit()

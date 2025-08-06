@@ -13,24 +13,29 @@ def get_random_noisy_action(device):
     rot = (torch.rand(1, device=device) - 0.5) * 2 * max_rot  # [-max_rot, max_rot]
     
     # Random translation
-    translations = torch.randn(2, device=device) * CONFIGS['TESTING_MAX_UNIT_TRANSLATION']
+    translation = torch.rand(1, device=device) * CONFIGS['TESTING_MAX_UNIT_TRANSLATION']
+    x_translation = torch.cos(rot) * translation
+    y_translation = torch.sin(rot) * translation
+
     
     # Random binary state
-    state_change = torch.randn(1, device=device)
+    state_change = torch.rand(1, device=device)
     
     # Combine into 4D action: [x_trans, y_trans, rotation, state_change]
-    actions = torch.cat([translations, rot, state_change], dim=-1)
+    actions = torch.cat([x_translation, y_translation, rot, state_change], dim=-1)
     return actions.unsqueeze(0)  # Add batch dimension
 
+# unused for now
 def ddim_step(alpha_cumprod, alpha_cumprod_prev, noisy_actions, predicted_noise, timestep):
     """DDIM denoising step (used in inference)"""
     alpha_cumprod_t = alpha_cumprod[timestep]
-    alpha_cumprod_t_prev = alpha_cumprod_prev[timestep]
+    alpha_cumprod_t_prev = alpha_cumprod_prev[timestep] 
     
     # Predict clean actions
     predicted_clean = (
         noisy_actions - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise
     ) / torch.sqrt(alpha_cumprod_t)
+
     
     # DDIM update
     denoised_actions = (
@@ -40,6 +45,33 @@ def ddim_step(alpha_cumprod, alpha_cumprod_prev, noisy_actions, predicted_noise,
     
     return denoised_actions
 
+
+def corrected_ddim_step(alpha_cumprod, noisy_actions, predicted_noise, timestep, timestep_prev):
+    """Corrected DDIM step with proper indexing"""
+    
+    # Get alpha values with proper bounds checking
+    alpha_cumprod_t = alpha_cumprod[timestep]
+    
+    if timestep_prev >= 0:
+        alpha_cumprod_t_prev = alpha_cumprod[timestep_prev]
+    else:
+        alpha_cumprod_t_prev = torch.tensor(1.0, device=alpha_cumprod.device)
+    
+    # Predict clean actions
+    predicted_clean = (
+        noisy_actions - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise
+    ) / torch.sqrt(alpha_cumprod_t)
+    
+    # DDIM update
+    if timestep_prev < 0:  # Final step
+        return predicted_clean
+    else:
+        denoised_actions = (
+            torch.sqrt(alpha_cumprod_t_prev) * predicted_clean +
+            torch.sqrt(1 - alpha_cumprod_t_prev) * predicted_noise
+        )
+        return denoised_actions
+    
 def action_tensor_to_obj(action_tensor):
     """Convert action tensor to game action object"""
     action = action_tensor.squeeze(0)  # Remove batch dimension
@@ -130,7 +162,7 @@ if __name__ == "__main__":
                 provided_demos.append(processed_demo)
             
             game_interface.reset()
-    else:
+    else: # ignore this for now
         # choose a config
         # load config with game_interface.load_config()
         # sample from demoset num_demo_given
@@ -160,11 +192,41 @@ if __name__ == "__main__":
         while t < CONFIGS['MAX_INFERENCE_ITER'] and not done:
             # Initialize with random noise
             noisy_actions = get_random_noisy_action(device)
+            print(f'initialy noisy action: {noisy_actions}')
             
+            """
             # DDIM denoising loop (reverse diffusion)
-            timesteps = torch.linspace(num_diffusion_steps-1, 0, num_diffusion_steps, dtype=torch.long, device=device)
-            
+            num_inference_steps = 50
+            timesteps = torch.linspace(num_diffusion_steps-1, 0, num_inference_steps, dtype=torch.long, device=device)
             for i, timestep in enumerate(timesteps):
+                #######################################
+                # Get noise prediction from agent
+                # predicted_noise, _ = agent(
+                #     curr_obs,
+                #     provided_demos,
+                #     noisy_actions
+                # )
+                
+                # # DDIM denoising step
+                # if i < len(timesteps) - 1:  # Not the final step
+                #     noisy_actions = ddim_step(
+                #         agent.alpha_cumprod, 
+                #         alpha_cumprod_prev, 
+                #         noisy_actions, 
+                #         predicted_noise, 
+                #         timestep
+                #     )
+                # else:  # Final step - compute clean action
+                #     alpha_cumprod_t = agent.alpha_cumprod[timestep]
+                #     clean_actions = (
+                #         noisy_actions - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise
+                #     ) / torch.sqrt(alpha_cumprod_t)
+                #     noisy_actions = clean_actions
+                ############################################
+                ############################################
+                current_timestep = timesteps[i]
+                next_timestep = timesteps[i+1] if i < len(timesteps)-1 else -1
+                
                 # Get noise prediction from agent
                 predicted_noise, _ = agent(
                     curr_obs,
@@ -173,29 +235,43 @@ if __name__ == "__main__":
                 )
                 
                 # DDIM denoising step
-                if i < len(timesteps) - 1:  # Not the final step
-                    noisy_actions = ddim_step(
-                        agent.alpha_cumprod, 
-                        alpha_cumprod_prev, 
-                        noisy_actions, 
-                        predicted_noise, 
-                        timestep
-                    )
-                else:  # Final step - compute clean action
-                    alpha_cumprod_t = agent.alpha_cumprod[timestep]
-                    clean_actions = (
-                        noisy_actions - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise
-                    ) / torch.sqrt(alpha_cumprod_t)
-                    noisy_actions = clean_actions
-            
+                noisy_actions = corrected_ddim_step(
+                    agent.alpha_cumprod,
+                    noisy_actions,
+                    predicted_noise,
+                    current_timestep,
+                    next_timestep
+                )
+                
+                # Debug: Print progress every 10 steps
+                if i % 10 == 0:
+                    action_magnitude = torch.norm(noisy_actions).item()
+                    print(f'Step {i}/{len(timesteps)}, timestep {current_timestep}, magnitude: {action_magnitude:.4f}')
+                ############################################
+
             # Convert final denoised action to game action
             action_obj = action_tensor_to_obj(noisy_actions)
+
+            print(f'final noisy action: {action_obj.forward_movement, action_obj.rotation, action_obj.state_change}')
+            """
+
+            ################################################
+            # DEBUGGING
+            # Start with small noise, not huge noise
+            noisy_actions = torch.randn(1, 4, device=device) * 5  # Much smaller
+            
+            # Single prediction at middle timestep
+            predicted_noise, _ = agent(curr_obs, provided_demos, noisy_actions)
+            
+            # Direct clean prediction
+            clean_actions = noisy_actions - predicted_noise  # Simple subtraction
+            action_obj = action_tensor_to_obj(clean_actions)
             
             # Take step in environment
             curr_obs = game_interface.step(action_obj)
             done = curr_obs.get('done', False)
-            
             t += 1
+            # breakpoint()
             
             if t % 10 == 0:
                 print(f"Step {t}, Done: {done}")

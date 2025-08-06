@@ -1,6 +1,6 @@
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = 2
+version = 2.5
 
 CONFIGS = {
     # AGENT CONFIGS
@@ -13,6 +13,7 @@ CONFIGS = {
     'EDGE_POS_DIM': 2,
     'TRAINING_MAX_TRANSLATION' : 1000, # WIDTH^2 + HEIGHT^2 SQRT
     'MAX_ROTATION_DEG' : 20,
+    'GROUPING_RADIUS' : 30,
 
     # DEMO CONFIGS (BOTH)
     'NUM_SAMPLED_POINTCLOUDS' : 3,
@@ -35,11 +36,15 @@ CONFIGS = {
     'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS
-    'MAX_INFERENCE_ITER' : 50,
+    'MAX_INFERENCE_ITER' : 100,
     'TEST_NUM_DEMO_GIVEN' : 1,
-    'TESTING_MAX_UNIT_TRANSLATION' : 25, # WIDTH^2 + HEIGHT^2 SQRT
+    'TESTING_MAX_UNIT_TRANSLATION' : 500, # WIDTH^2 + HEIGHT^2 SQRT
     'STATE_CHANGE_ODDS': (0.5, 0.5),
     'FIG_FILENAME' : f'avg_loss_ip_{_type}_v{version}',
     
 
 }
+
+from tasks2d import LousyPacmanPseudoScreenHeight as SCREEN_HEIGHT
+from tasks2d import LousyPacmanPseudoScreenWidth as SCREEN_WIDTH
+from tasks2d import LousyPacmanPseudoGame as  PseudoGame

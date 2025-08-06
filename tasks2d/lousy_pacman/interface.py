@@ -67,7 +67,7 @@ class GameInterface:
             'agent-state' : agent_state,
             'agent-orientation' : self.game.player.get_orientation('deg'),
             #game info
-            'done': self.running,
+            'done': not self.running,
             'time' : self.t
         }
         self.observations.append(obs)

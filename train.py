@@ -1,13 +1,5 @@
-# import graph 
-from graph import LocalGraph, DemoGraph, ContextGraph, ActionGraph
-
-
 # import game
-from tasks2d import  LousyPacmanPseudoGame as  PseudoGame
-from tasks2d import  LousyPacmanPseudoScreenHeight as  SCREEN_HEIGHT
-from tasks2d import  LousyPacmanPseudoScreenWidth as  SCREEN_WIDTH
-
-
+from configs import SCREEN_HEIGHT, SCREEN_WIDTH, PseudoGame
 
 # import agent
 from agent_files import InstantPolicyAgent
@@ -244,8 +236,9 @@ if __name__ == "__main__":
     # train geometry encoder
     geometry_encoder_filename = 'geometry_encoder_2d.pth'
     node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
-    full_train(node_embd_dim, device, filename=geometry_encoder_filename)
-    model = GeometryEncoder2D(node_embd_dim=node_embd_dim, device=device).to(device)
+    grouping_radius = CONFIGS['GROUPING_RADIUS']
+    full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename)
+    model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 
     # Initialize agent
