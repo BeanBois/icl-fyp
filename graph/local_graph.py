@@ -2,6 +2,8 @@
 from .aux import *
 import numpy as np 
 
+# change to use torch.geometric
+# no add interface for it such taht u can convert then other funcitons are useless 
 # change this to change task being ran 
 from tasks2d import LousyPacmanPlayerState as PlayerState
 # This Local Graph represents a screenshot of the pointcloud at a particular timestep
@@ -162,3 +164,15 @@ class LocalGraph:
         plt.tight_layout()
         plt.show()
 
+
+
+
+from torch_geometric.data import HeteroData
+
+# 
+class PygLocalGraph(HeteroData):
+
+    def __init__(self,):
+        super().__init__()
+
+        # 

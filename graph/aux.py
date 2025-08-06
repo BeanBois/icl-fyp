@@ -24,6 +24,12 @@ class EdgeType(Enum):
     # OBJECT_RELDEMO_OBJECT =   b'010000000000' # unused for now
     # AGENT_RELCOND_AGENT =     b'100000000000' # unused for now
 
+class AgentNodeTag(Enum):
+    EDGE1 = b'0001'
+    EDGE2 = b'0010'
+    EDGE3 = b'0100'
+    CENTER = b'1000'
+
 
 class Edge:
 
@@ -48,12 +54,7 @@ class Node:
         return self.timestep
 
 
-class AgentNodeTag(Enum):
-    EDGE1 = b'0001'
-    EDGE2 = b'0010'
-    EDGE3 = b'0100'
-    CENTER = b'1000'
-    
+  
 class AgentNode(Node):
     def __init__(self, pos, time, orientation, tag):
         super().__init__(pos,time)
@@ -89,6 +90,23 @@ class ObstacleNode(Node):
 
 
 
+# counter-parts 
+
+# fundementally each node is represented by tensors 
+# rethink do i need to do this? FKKKK 
+import torch
+
+class PygNode(torch.tensor): 
+
+    def __init__(self, node_data, pos, **args):
+        super().__init__(node_data, **args)
+
+ 
+
+class PygEdge:
+    pass 
+
+class 
 
 
 
