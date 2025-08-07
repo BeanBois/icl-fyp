@@ -14,8 +14,8 @@ SAMPLING_RATE = 1
 CONFIGS = {
 
     # GEO ENCODER TRAINING CONFIGS
-    'GEO_NUM_EPOCHS' : 5000,
-    'GEO_BATCH_SIZE' : 10000,
+    'GEO_NUM_EPOCHS' : 1000,
+    'GEO_BATCH_SIZE' : 5000,
     # AGENT CONFIGS
     'NUM_AGENT_NODES' : 4,
     'PRED_HORIZON' : 5,
@@ -49,7 +49,7 @@ CONFIGS = {
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
     'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
-    'BATCH_SIZE' : 1,
+    'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 100,
