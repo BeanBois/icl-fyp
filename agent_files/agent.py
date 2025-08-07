@@ -65,38 +65,37 @@ class InstantPolicyAgent(nn.Module):
     def forward(self,
                 curr_obs,
                 context,
-                clean_actions):
+                clean_actions): # [T * 10], T is the demo length 
         # need to use clean actions to generate noisy actions 
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large') 
+        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large') # noisy action shape is [T * 10]
 
-        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device) # N x self.num_agent_nodes x self.node_emb_dim
-        N, num_nodes, hidden_dim = node_embs.shape
-        flat_node_embs = node_embs.view(N * num_nodes, hidden_dim)  # [N*4, 1024]
+        assert noisy_actions.shape == clean_actions.shape 
+        assert action_noise.shape == clean_actions.shape 
+
+        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device) # T x self.num_agent_nodes = 4 x self.node_emb_dim = 1024
+        T, num_nodes, hidden_dim = node_embs.shape
+        flat_node_embs = node_embs.view(T * num_nodes, hidden_dim)  # [T*4, 1024]
 
         # Predict noise components
-        flat_translation_noise = self.pred_head_p(flat_node_embs).to(self.device)    # [N*4, 2]
-        flat_rotation_noise = self.pred_head_rot(flat_node_embs).to(self.device)    # [N*4, 1] 
-        flat_gripper_noise = self.pred_head_g(flat_node_embs).to(self.device)    # [N*4, 1]
+        flat_translation_noise = self.pred_head_p(flat_node_embs).to(self.device)    # [T * 4, 2]
+        flat_rotation_noise = self.pred_head_rot(flat_node_embs).to(self.device)    # [T * 4, 1] 
+        flat_gripper_noise = self.pred_head_g(flat_node_embs).to(self.device)    # [T * 4, 1]
         
 
-        per_node_translation = flat_translation_noise.view(N, num_nodes, 2)  # [N, 4, 2]
-        per_node_rotation = flat_rotation_noise.view(N, num_nodes, 2)        # [N, 4, 2]  
-        per_node_total_translation = per_node_translation + per_node_rotation # [N, 4, 2]
+        per_node_translation = flat_translation_noise.view(T, num_nodes, 2)  # [T, 4, 2]
+        per_node_rotation = flat_rotation_noise.view(T, num_nodes, 2)        # [T, 4, 2]  
+        per_node_total_translation = per_node_translation + per_node_rotation # [T, 4, 2]
 
-        per_node_gripper = flat_gripper_noise.view(N, num_nodes, 1)          # [N, 4, 1]
+        per_node_gripper = flat_gripper_noise.view(T, num_nodes, 1)          # [T, 4, 1]
 
         # get action noise
-        predicted_per_node_noise =torch.cat([per_node_total_translation, per_node_rotation, per_node_gripper],dim = -1) # [N, 4, 3]
+        predicted_per_node_noise =torch.cat([per_node_translation, per_node_rotation, per_node_gripper],dim = -1) # [4, 3]
 
-        
         return predicted_per_node_noise, action_noise
     
-
-
-
-    def _solve_se2_alignment(self, source_points, target_points):
+    def _solve_se2_alignment(self, source_points, target_points): # unused
         """
         Solve for SE(2) transformation that best aligns source to target points
         This is the 2D equivalent of SVD alignment in the paper
@@ -256,6 +255,8 @@ class InstantPolicyAgent(nn.Module):
         
         return T
 
+
+# fix here
     def _get_noisy_actions(self, clean_actions, timesteps, mode = 'large'):
         """
         Choose mode based on displacement magnitude
@@ -277,8 +278,9 @@ class InstantPolicyAgent(nn.Module):
         batch_size = SE2_clean.shape[0]
         se2_noise = torch.randn(batch_size, 3, device=self.device)  # [ρx, ρy, θ]
         
+        # TODO : ACTIONS SCALING HERE 
         # Scale noise for large displacements
-        se2_noise[..., :2] *= 0.1  # Large translation noise (10cm)
+        se2_noise[..., :2] *= 10  # Large translation noise (10px)
         se2_noise[..., 2] *= 0.5   # Large rotation noise (≈30°)
         
         # Convert noise to SE(2) matrices using matrix exponential
@@ -304,15 +306,15 @@ class InstantPolicyAgent(nn.Module):
         
         # Handle binary actions
         binary_noise = torch.randn_like(binary_actions)
-        alpha_cumprod_binary = self.alpha_cumprod[timesteps].view(-1, 1)
+        alpha_cumprod_binary = self.alpha_cumprod[timesteps].view(-1,)
         noisy_binary = torch.sqrt(alpha_cumprod_binary) * binary_actions + torch.sqrt(1 - alpha_cumprod_binary) * binary_noise
         
         # Combine results
-        noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary], dim=-1)
+        noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary.view(-1,1)], dim=-1)
         
         # The noise is the difference in action space (for training target)
         moving_noise = SE2_noisy_flat - SE2_clean_flat
-        full_noise = torch.cat([moving_noise, binary_noise], dim=-1)
+        full_noise = torch.cat([moving_noise, binary_noise.view(-1,1)], dim=-1)
         
         return noisy_actions, full_noise
 

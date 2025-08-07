@@ -44,7 +44,8 @@ class PseudoGame:
                  augmented = DEFAULT_NOT_AUGMENTED, 
                  screen_width = SCREEN_WIDTH, 
                  screen_height = SCREEN_HEIGHT, 
-                 player_starting_pos = (PLAYER_START_X, PLAYER_START_Y)):
+                 player_starting_pos = (PLAYER_START_X, PLAYER_START_Y),
+                 MAX_LENGTH = 100):
         
         os.environ['SDL_VIDEODRIVER'] = 'dummy' # running headless
         # setup configs for pseudo game
@@ -59,8 +60,9 @@ class PseudoGame:
         self.objects = []
         self.num_objects = num_objects
         self._populate_pseudo_game()
-
+        self.max_length = MAX_LENGTH
         self.num_waypoints_used = np.random.randint(min_num_sampled_waypoints, max_num_sampled_waypoints)
+        self.done = False
         self.biased = biased
         self.augmented = augmented
         self._wp_offset = 0
@@ -75,7 +77,7 @@ class PseudoGame:
         self.draw()
         obs = self.get_obs()
         self.observations.append(obs)
-        while self.num_waypoints_used > self.t:
+        while not self.done and self.t < self.max_length: 
             self.t += 1
             self.go_to_next_waypoint()
             self.update()
@@ -124,7 +126,7 @@ class PseudoGame:
             'agent-pos' : agent_pos,
             'agent-state' : agent_state,
             'agent-orientation' : self.player.get_orientation('deg'),
-            'done' : self.t >= self.num_waypoints_used,
+            'done' : self.t >= self.max_length or self.done , # wrong
             'time' : self.t
         }
 
@@ -143,6 +145,7 @@ class PseudoGame:
         if np.linalg.norm(next_point - player_center) < WAYPOINT_THRESHOLD:
             self._wp_offset += 1
             if self._wp_offset == self.waypoints.shape[0]:
+                self.done = True
                 return
             next_waypoint = self.waypoints[self._wp_offset]  # Get the new next waypoint
             next_point = next_waypoint[:-1]

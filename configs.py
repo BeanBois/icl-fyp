@@ -7,9 +7,9 @@ from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
 version = '4'
-geo_version = '2'
+geo_version = '1'
 
-SAMPLING_RATE = 4
+SAMPLING_RATE = 1
 
 CONFIGS = {
 
@@ -19,10 +19,9 @@ CONFIGS = {
     # AGENT CONFIGS
     'NUM_AGENT_NODES' : 4,
     'PRED_HORIZON' : 5,
-    'HIDDEN_DIM' : 1024, # unused 
-    'NUM_ATT_HEADS' : 8, # REPLACE NODE EBD DIM 
-    'HEAD_DIM' : 64, # REPLACE NODE EMB DIM 
-    'AGENT_STATE_EMB_DIM' : 64,
+    'NUM_ATT_HEADS' : 4, # REPLACE NODE EBD DIM 
+    'HEAD_DIM' : 16, # REPLACE NODE EMB DIM 
+    'AGENT_STATE_EMB_DIM' : 16,
     'EDGE_POS_DIM': 2,
     'TRAINING_MAX_TRANSLATION' : SAMPLING_RATE * PSEUDO_MAX_TRANSLATION, # WIDTH^2 + HEIGHT^2 SQRT 
     'MAX_ROTATION_DEG' : SAMPLING_RATE * PSEUDO_MAX_ROTATION,
@@ -36,6 +35,7 @@ CONFIGS = {
     # PSEUDO-DEMO CONFIGS
     "DEMO_MAX_LENGTH" : 6,
     'DEMO_MIN_LENGTH' : 2,
+    'DEMO_MAX_LENGTH' : 50,
 
     # DEMO GIVEN CONFIGS
     'SAMPLING_RATE' : SAMPLING_RATE,
@@ -49,7 +49,7 @@ CONFIGS = {
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
     'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
-    'BATCH_SIZE' : 10,
+    'BATCH_SIZE' : 1,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 100,

@@ -246,9 +246,9 @@ class InstantPolicy(nn.Module):
         return graph
 
     def forward(self, 
-                curr_obs, # 1 
-                provided_demos, # list of demos, whereby each demo contains a list of observation,
-                noisy_actions, # list of actions
+                curr_obs, # oij
+                provided_demos, # {d_ij}, i = [1:L], [1:N]
+                noisy_actions, # T * 10 
                 ):
 
         # pass obs t
@@ -366,9 +366,9 @@ class InstantPolicy(nn.Module):
 
 
         # problem starts here 
-        
+
         # for action in actions:
-        for noisy_action in noisy_actions:
+        for noisy_action in noisy_actions: # T * 10 
             action_obj = self._recover_action_obj(noisy_action)
             action_graph = ActionGraph(curr_graph, action_obj)
             predicted_graph = action_graph.predicted_graph
@@ -428,14 +428,6 @@ class InstantPolicy(nn.Module):
             # finally get psi
             psi = self.psi(action_node_embd, action_node_idx_dict_by_type, action_connection_matrix, action_graph_edge_features, action_graph_edge_index_dict)
 
-
-
-            # im going to move this part to InstantPolicyAgent
-            # for now predictions will be node embds
-            # ######################################################
-            # simplify this since agent nodes need not move by same amount!
-            # for now we just use center node, which is the last node
-
             agent_nodes = psi[NodeType.AGENT]
             predictions[t] = psi[NodeType.AGENT][self.num_agent_nodes:]
 
@@ -451,10 +443,20 @@ class InstantPolicy(nn.Module):
         return post 
     
     def _recover_action_obj(self, action):
+        
         if action.device == 'cpu':
-            x, y, theta, state_change = action
+            action = action
         else:
-            x, y, theta, state_change = action.cpu() 
+            action = action.cpu() 
+
+        
+        state_change = action[-1]
+
+        se2_action = action[:-1].view(3,3)
+        x = se2_action[0,2]
+        y = se2_action[1,2]
+        theta = torch.arctan2(se2_action[1,0], se2_action[0,0])
+
         forward_movement = np.sqrt(x**2 + y**2)
         
         # Method 2: Signed projection (can be negative if moving backward)
@@ -471,7 +473,6 @@ class InstantPolicy(nn.Module):
             if state_change == player_state.value:
                 state_change = player_state 
                 continue
-
         assert type(state_change) == PlayerState
 
         return Action(forward_movement=forward_movement, rotation_deg=theta_deg, state_change=state_change)

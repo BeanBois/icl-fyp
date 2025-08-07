@@ -18,13 +18,7 @@ from typing import List, Tuple, Dict
 
 
 
-# Generates a single X for training. 
-#  X contains:
-#       context : list of (obs, action)
-#       clean_actions : the actions taken in the Nth demo
-#       curr_obs : curr observation of the Nth demo
-
-# think about diff demo types, biaseed, augmeneted ect
+# TODO: add Arg for Max Length 
 class PseudoDemoGenerator:
 
     def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
@@ -66,27 +60,24 @@ class PseudoDemoGenerator:
             curr_obs_batch = []
             context_batch = []
             clean_actions_list = []
-            prev_stacked_actions_list = []
 
             
             for future in as_completed(futures):
-                curr_obs, context, clean_actions, prev_stacked_actions = future.result()
+                curr_obs, context, clean_actions = future.result()
                 curr_obs_batch.append(curr_obs)
                 context_batch.append(context)
                 clean_actions_list.append(clean_actions)
-                prev_stacked_actions_list.append(prev_stacked_actions)
 
         
         # Stack clean actions into a single tensor [batch_size, pred_horizon, 4]
         clean_actions_batch = torch.stack(clean_actions_list, dim=0)
-        prev_stacked_actions_batch = torch.stack(prev_stacked_actions_list, dim=0)
 
         
         # Store agent keypoints from the last generated sample (they should all be the same)
         if hasattr(self._thread_local, 'agent_key_points') and self._thread_local.agent_key_points is not None:
             self.agent_key_points = self._thread_local.agent_key_points
         
-        return curr_obs_batch, context_batch, clean_actions_batch, prev_stacked_actions_batch
+        return curr_obs_batch, context_batch, clean_actions_batch
 
     def _generate_single_sample(self) -> Tuple[dict, List, torch.Tensor]:
         """Generate a single training sample (thread-safe)"""
@@ -143,20 +134,20 @@ class PseudoDemoGenerator:
         true_obs = pseudo_demo.observations[::self.sample_rate]
         pd_actions = pseudo_demo.get_actions(mode='se2')
 
-        se2_actions = np.array([action[0] for action in pd_actions]) # n x 3 x 3
+        se2_actions = np.array([action[0].flatten() for action in pd_actions]) # n x 9
         state_actions = np.array([action[1] for action in pd_actions]) # n x 1
-
-        se2_actions = np.array(se2_actions).reshape(-1,9)
-        actions = np.concat([se2_actions, state_actions])
-
+        state_actions = state_actions.reshape(-1,1)
+        actions = np.concatenate([se2_actions, state_actions], axis=1)
         actions = torch.tensor(
             actions, 
             dtype=torch.float, 
             device=self.device
         )          
-
+        temp = actions.shape
         actions = self._accumulate_actions(actions)
+        assert temp == actions.shape
         actions = actions[::self.sample_rate]
+
         return true_obs[0], actions
     
     def _accumulate_actions(self, actions):
@@ -180,18 +171,15 @@ class PseudoDemoGenerator:
         return cumulative_actions
     
 
-    
-
-
 class Trainer: 
 
-    def __init__(self, agent, num_demos_for_context, num_agent_nodes = 4,pred_horizon = 8, min_demo_length = 2, max_demo_length = 6, batch_size = 10,device='cuda'):
+    def __init__(self, agent, num_demos_for_context, num_agent_nodes = 4,pred_horizon = 8, min_num_waypoints = 2, max_num_waypoints = 6, batch_size = 10,device='cuda'):
         self.agent = agent
         self.device = device 
         self.data_generator = PseudoDemoGenerator(
                 num_demos = num_demos_for_context + 1,  
-                max_num_waypoints = max_demo_length, 
-                min_num_waypoints=min_demo_length,
+                max_num_waypoints = max_num_waypoints, 
+                min_num_waypoints=min_num_waypoints,
                 device=self.device
                 )
         self.agent_keypoint = None
@@ -209,13 +197,10 @@ class Trainer:
         
         for i in range(self.batch_size):
             curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
+            predicted_per_node_noise, action_noise_flat = self.agent(curr_obs, context, clean_actions) 
 
-            predicted_per_node_noise, action_noise_flat = self.agent(curr_obs, context, clean_actions) # N x 
-
-            # we will fix later HAHHAHA fuck this bull shit i should kill myself!
             actual_pn_denoising_dir = self.get_pnn_from_noise(agent_keypoints, action_noise_flat)
-
-            assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape # (N, 3, 1)
+            assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape # (num_agent_nodes, 3, 1)
 
             # Direct MSE loss in action space
             loss = nn.MSELoss()(predicted_per_node_noise, actual_pn_denoising_dir)
@@ -226,32 +211,59 @@ class Trainer:
 
         return total_loss / self.batch_size
     
-    def get_pnn_from_noise(self, agent_keypoints, action_noise_flat):
-        # Reshape SE(2) matrices from flattened format
-        state_action_noise = action_noise_flat[...,-1]
-
-
-        se2_matrices = action_noise_flat[...,:-1].view(self.batch_size, self.pred_horizon, 3, 3)
-        # Convert keypoints to homogeneous coordinates [x, y, 1]
-        ones = torch.ones(self.batch_size, self.pred_horizon, self.num_agent_nodes, 1, 
-                        device=agent_keypoints.device, dtype=agent_keypoints.dtype)
-        keypoints_homo = torch.cat([agent_keypoints, ones], dim=-1)  # (B, T, N, 3)
+    # TODO : test for this
+    def get_pnn_from_noise(eslf,agent_keypoints, action_noise):
+        """
+        Calculate per-node denoising directions from noisy actions
         
-        # Apply SE(2) transformation: p_new = T @ p_old
-        # keypoints_homo: (B, T, N, 3) -> (B, T, N, 3, 1) for batch matrix multiply
-        keypoints_homo = keypoints_homo.unsqueeze(-1)
+        Args:
+            agent_keypoints: (4, 2) - current gripper keypoints [x, y]
+            action_noise: (L, 10) - noisy cumulative actions [SE(2) + state]
         
-        # se2_matrices: (B, T, 3, 3) -> (B, T, 1, 3, 3) to broadcast over keypoints
-        se2_matrices = se2_matrices.unsqueeze(2)
+        Returns:
+            denoising_directions: (L, 4, 5) - per node denoising directions
+            where 5 = [delta_x, delta_y, delta_rot_x, delta_rot_y, delta_gripper]
+        """
+        L = action_noise.shape[0]
         
-        # Matrix multiplication: (B, T, N, 3, 3) @ (B, T, N, 3, 1) -> (B, T, N, 3, 1)
-        transformed_homo = torch.matmul(se2_matrices, keypoints_homo).squeeze(-1)
+        # Original keypoints repeated for each action
+        original_keypoints = agent_keypoints.unsqueeze(0).repeat(L, 1, 1)  # (L, 4, 2)
         
-        # Extract x, y coordinates (ignore homogeneous coordinate)
-        noisy_keypoints = transformed_homo[:, :, :, :2]
-
+        # Extract SE(2) transformations (first 9 dims)
+        se2_noise = action_noise[:, :9].view(L, 3, 3)  # (L, 3, 3)
+        state_noise = action_noise[:, 9:10]  # (L, 1)
         
-        return noisy_keypoints
+        # Convert to homogeneous coordinates
+        ones = torch.ones(L, 4, 1, device=agent_keypoints.device, dtype=agent_keypoints.dtype)
+        keypoints_homo = torch.cat([original_keypoints, ones], dim=-1)  # (L, 4, 3)
+        
+        # Apply SE(2) transformations
+        transformed_keypoints_homo = torch.bmm(keypoints_homo, se2_noise.transpose(-2, -1))
+        transformed_keypoints = transformed_keypoints_homo[:, :, :2]  # (L, 4, 2)
+        
+        # Calculate translation shifts (actual displacement)
+        translation_shifts = transformed_keypoints - original_keypoints  # (L, 4, 2)
+        
+        # Calculate rotation components (for denoising)
+        # Extract rotation part of SE(2) matrix
+        rotation_matrices = se2_noise[:, :2, :2]  # (L, 2, 2)
+        
+        # Calculate rotation-induced shifts for each keypoint
+        centered_keypoints = original_keypoints - original_keypoints.mean(dim=1, keepdim=True)
+        rotated_centered = torch.bmm(centered_keypoints, rotation_matrices.transpose(-2, -1))
+        rotation_shifts = rotated_centered - centered_keypoints  # (L, 4, 2)
+        
+        # Repeat gripper state for each keypoint
+        gripper_shifts = state_noise.unsqueeze(1).repeat(1, 4, 1)  # (L, 4, 1)
+        
+        # Combine all denoising directions: [trans_x, trans_y, rot_x, rot_y, gripper]
+        denoising_directions = torch.cat([
+            translation_shifts,      # (L, 4, 2) - [delta_x, delta_y]
+            rotation_shifts,         # (L, 4, 2) - [delta_rot_x, delta_rot_y] 
+            gripper_shifts          # (L, 4, 1) - [delta_gripper]
+        ], dim=-1)  # (L, 4, 5)
+        
+        return denoising_directions
 
     
     def train_epoch(self, num_steps_per_epoch = 100):
@@ -306,7 +318,7 @@ if __name__ == "__main__":
     geometry_encoder_filename = f'geometry_encoder_2d_v{geo_version}.pth'
     node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
     grouping_radius = CONFIGS['GROUPING_RADIUS']
-    full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= CONFIGS['GEO_NUM_EPOCHS'], num_samples= CONFIGS['GEO_BATCH_SIZE'])
+    # full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= CONFIGS['GEO_NUM_EPOCHS'], num_samples= CONFIGS['GEO_BATCH_SIZE'])
     model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 
@@ -331,8 +343,8 @@ if __name__ == "__main__":
                     num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
                     pred_horizon=CONFIGS['PRED_HORIZON'],
                     num_demos_for_context=CONFIGS['NUM_DEMO_GIVEN'],
-                    max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
-                    min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
+                    max_num_waypoints=CONFIGS['DEMO_MAX_LENGTH'],
+                    min_num_waypoints=CONFIGS['DEMO_MIN_LENGTH'],
                     batch_size=CONFIGS['BATCH_SIZE']
                     )
     
