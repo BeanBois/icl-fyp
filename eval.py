@@ -6,6 +6,11 @@ from tasks2d import LousyPacmanPseudoGameAction as Action
 from tasks2d import LousyPacmanPlayerState as PlayerState
 from configs import CONFIGS
 
+
+# NOT FIXED
+def _to_se2(self, action):
+    pass 
+
 def get_random_noisy_action(device):
     """Generate initial noisy action for diffusion process"""
     max_rot = torch.tensor(CONFIGS['TESTING_MAX_UNIT_ROTATION'], device=device)
@@ -20,6 +25,8 @@ def get_random_noisy_action(device):
     
     # Random binary state
     state_change = torch.rand(1, device=device)
+
+    # convert actions to SE2
     
     # Combine into 4D action: [x_trans, y_trans, rotation, state_change]
     actions = torch.cat([x_translation, y_translation, rot, state_change], dim=-1)

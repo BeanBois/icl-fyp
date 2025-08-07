@@ -245,17 +245,14 @@ class InstantPolicy(nn.Module):
                         agent_orientation=agent_orientation_np)
         return graph
 
-    # TODO : fix the graphs here. it is notworking as it should? unsure im not going to lie
     def forward(self, 
                 curr_obs, # 1 
                 provided_demos, # list of demos, whereby each demo contains a list of observation,
-                noisy_actions, # list of actions?
-                prev_stacked_actions,
+                noisy_actions, # list of actions
                 ):
 
         # pass obs t
         pointclouds, coords, agent_pos, agent_state, agent_orientation, done, time = self._process_observation_to_tensor(curr_obs)
-
 
         curr_features, curr_centroids = self.geometry_encoder(coords)
         selected_pointclouds = self._get_selected_pointclouds(pointclouds, coords, curr_centroids)
@@ -368,13 +365,12 @@ class InstantPolicy(nn.Module):
         t = 0
 
 
+        # problem starts here 
+        
         # for action in actions:
-        for noisy_action, prev_stacked_action in zip(noisy_actions, prev_stacked_actions):
-
-            action = self._add_actions(pre = prev_stacked_action, post = noisy_action)
-            action_obj = self._recover_action_obj(action)
+        for noisy_action in noisy_actions:
+            action_obj = self._recover_action_obj(noisy_action)
             action_graph = ActionGraph(curr_graph, action_obj)
-
             predicted_graph = action_graph.predicted_graph
 
             #  since action graph made from current graph, we will use the same object features

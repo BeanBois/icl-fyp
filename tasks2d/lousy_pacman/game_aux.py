@@ -33,7 +33,7 @@ class Action:
         SE2[1,2] = _sin * self.forward_movement
         SE2[2,2] = 1 
         
-        return SE2, self.state_change.value
+        return (SE2, self.state_change.value)
     
     def as_vector(self, mode = 'deg'):
         vector = np.zeros(4)

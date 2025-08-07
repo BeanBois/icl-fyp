@@ -91,8 +91,8 @@ class PseudoDemoGenerator:
     def _generate_single_sample(self) -> Tuple[dict, List, torch.Tensor]:
         """Generate a single training sample (thread-safe)"""
         context = self._get_context()   
-        curr_obs, clean_actions, prev_stacked_actions = self._get_ground_truth()
-        return curr_obs, context, clean_actions, prev_stacked_actions
+        curr_obs, clean_actions = self._get_ground_truth()
+        return curr_obs, context, clean_actions
 
     def get_agent_keypoints(self):
         if self.agent_key_points is None:
@@ -141,30 +141,51 @@ class PseudoDemoGenerator:
     def _get_ground_truth(self):
         pseudo_demo = self._run_game(biased=True, augmented=False)
         true_obs = pseudo_demo.observations[::self.sample_rate]
+        pd_actions = pseudo_demo.get_actions(mode='se2')
+
+        se2_actions = np.array([action[0] for action in pd_actions]) # n x 3 x 3
+        state_actions = np.array([action[1] for action in pd_actions]) # n x 1
+
+        se2_actions = np.array(se2_actions).reshape(-1,9)
+        actions = np.concat([se2_actions, state_actions])
+
         actions = torch.tensor(
-            np.array(pseudo_demo.get_actions(mode='vector', angle_unit='rad')), 
+            actions, 
             dtype=torch.float, 
             device=self.device
         )          
-        prev_stacked_actions = self._process_actions(actions)
+
+        actions = self._accumulate_actions(actions)
         actions = actions[::self.sample_rate]
-        prev_stacked_actions = prev_stacked_actions[::self.sample_rate]
-        return true_obs[0], actions, prev_stacked_actions
+        return true_obs[0], actions
     
-    def _process_actions(self, actions):
-        stacked_actions = torch.zeros(actions.shape, device = self.device)
-        for i in range(1,actions.shape[0]):
-            stacked_actions[i, : 2] = stacked_actions[i-1, :2 ] + actions[i-1, :2] # add trans
-            stacked_actions[i,  2] = (stacked_actions[i-1, 2 ] + actions[i-1, 2]) % (2 * np.pi) # add theta
-            stacked_actions[i,3] = actions[i-1,3]
-        return stacked_actions
+    def _accumulate_actions(self, actions):
+        n = actions.shape[0]
+        
+        # Extract and reshape SE(2) matrices
+        se2_matrices = actions[:, :9].view(n, 3, 3)
+        state_actions = actions[:, 9:]
+        
+        # Compute cumulative matrix products
+        cumulative_matrices = torch.zeros_like(se2_matrices)
+        cumulative_matrices[0] = se2_matrices[0]
+        
+        for i in range(1, n):
+            cumulative_matrices[i] = torch.matmul(cumulative_matrices[i-1], se2_matrices[i])
+        
+        # Flatten back and concatenate with state actions
+        cumulative_se2_flat = cumulative_matrices.view(n, 9)
+        cumulative_actions = torch.cat([cumulative_se2_flat, state_actions], dim=1)
+        
+        return cumulative_actions
+    
 
     
 
 
 class Trainer: 
 
-    def __init__(self, agent, num_demos_for_context, min_demo_length = 2, max_demo_length = 6, batch_size = 10,device='cuda'):
+    def __init__(self, agent, num_demos_for_context, num_agent_nodes = 4,pred_horizon = 8, min_demo_length = 2, max_demo_length = 6, batch_size = 10,device='cuda'):
         self.agent = agent
         self.device = device 
         self.data_generator = PseudoDemoGenerator(
@@ -173,30 +194,65 @@ class Trainer:
                 min_num_waypoints=min_demo_length,
                 device=self.device
                 )
+        self.agent_keypoint = None
         self.batch_size = batch_size
+        self.pred_horizon = pred_horizon
+        self.num_agent_nodes = num_agent_nodes
         # Optimizer (from appendix: AdamW with 1e-5 learning rate)
         self.optimizer = optim.AdamW(agent.parameters(), lr=1e-5)
       
     def train_step(self):
         self.optimizer.zero_grad()
         total_loss = 0.0
-        curr_obs_batch, context_batch, clean_actions_batch, prev_stacked_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
+        curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
+        agent_keypoints = self.data_generator.get_agent_keypoints()
         
         for i in range(self.batch_size):
-            curr_obs, context, clean_actions, prev_stacked_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i], prev_stacked_actions_batch[i]
-            # Agent already computes the correct noise internally
-            predicted_noise, actual_noise = self.agent(curr_obs, context, clean_actions, prev_stacked_actions)
-            # Both should be [batch, 4] - action space noise
-            assert predicted_noise.shape == actual_noise.shape, f"Shape mismatch: {predicted_noise.shape} vs {actual_noise.shape}"
+            curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
+
+            predicted_per_node_noise, action_noise_flat = self.agent(curr_obs, context, clean_actions) # N x 
+
+            # we will fix later HAHHAHA fuck this bull shit i should kill myself!
+            actual_pn_denoising_dir = self.get_pnn_from_noise(agent_keypoints, action_noise_flat)
+
+            assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape # (N, 3, 1)
 
             # Direct MSE loss in action space
-            loss = nn.MSELoss()(predicted_noise, actual_noise)
+            loss = nn.MSELoss()(predicted_per_node_noise, actual_pn_denoising_dir)
             scaled_loss = loss / self.batch_size
             scaled_loss.backward()
             total_loss += loss.item()
-        
-        self.optimizer.step()
+            self.optimizer.step()
+
         return total_loss / self.batch_size
+    
+    def get_pnn_from_noise(self, agent_keypoints, action_noise_flat):
+        # Reshape SE(2) matrices from flattened format
+        state_action_noise = action_noise_flat[...,-1]
+
+
+        se2_matrices = action_noise_flat[...,:-1].view(self.batch_size, self.pred_horizon, 3, 3)
+        # Convert keypoints to homogeneous coordinates [x, y, 1]
+        ones = torch.ones(self.batch_size, self.pred_horizon, self.num_agent_nodes, 1, 
+                        device=agent_keypoints.device, dtype=agent_keypoints.dtype)
+        keypoints_homo = torch.cat([agent_keypoints, ones], dim=-1)  # (B, T, N, 3)
+        
+        # Apply SE(2) transformation: p_new = T @ p_old
+        # keypoints_homo: (B, T, N, 3) -> (B, T, N, 3, 1) for batch matrix multiply
+        keypoints_homo = keypoints_homo.unsqueeze(-1)
+        
+        # se2_matrices: (B, T, 3, 3) -> (B, T, 1, 3, 3) to broadcast over keypoints
+        se2_matrices = se2_matrices.unsqueeze(2)
+        
+        # Matrix multiplication: (B, T, N, 3, 3) @ (B, T, N, 3, 1) -> (B, T, N, 3, 1)
+        transformed_homo = torch.matmul(se2_matrices, keypoints_homo).squeeze(-1)
+        
+        # Extract x, y coordinates (ignore homogeneous coordinate)
+        noisy_keypoints = transformed_homo[:, :, :, :2]
+
+        
+        return noisy_keypoints
+
     
     def train_epoch(self, num_steps_per_epoch = 100):
         total_loss = 0.0
@@ -271,12 +327,14 @@ if __name__ == "__main__":
     
     # Initialize trainer
     trainer = Trainer(agent,
-                      device=device, 
-                      num_demos_for_context=CONFIGS['NUM_DEMO_GIVEN'],
-                      max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
-                      min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
-                      batch_size=CONFIGS['BATCH_SIZE']
-                      )
+                    device=device, 
+                    num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
+                    pred_horizon=CONFIGS['PRED_HORIZON'],
+                    num_demos_for_context=CONFIGS['NUM_DEMO_GIVEN'],
+                    max_demo_length=CONFIGS['DEMO_MAX_LENGTH'],
+                    min_demo_length=CONFIGS['DEMO_MIN_LENGTH'],
+                    batch_size=CONFIGS['BATCH_SIZE']
+                    )
     
     # Train the model
     trainer.full_training(
