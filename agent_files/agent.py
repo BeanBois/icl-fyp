@@ -50,7 +50,7 @@ class InstantPolicyAgent(nn.Module):
         self.pred_head_rot = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim, device=self.device),
             nn.GELU(),
-            nn.Linear(self.node_embd_dim, 1, device=self.device),
+            nn.Linear(self.node_embd_dim, 2, device=self.device),
         )
         self.pred_head_g = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim,device=self.device),
@@ -58,10 +58,8 @@ class InstantPolicyAgent(nn.Module):
             nn.Linear(self.node_embd_dim,1,device=self.device),
             nn.ReLU(),
         )
-        
-
+    
     # right now action is x,y,theta,state_change
-    # 
     # optimally want to produce:  
     # x_cetner_mass_trans, y_centre_mass_trans, 
     def forward(self,
@@ -75,18 +73,107 @@ class InstantPolicyAgent(nn.Module):
         noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large')
 
         node_embs = self.policy(curr_obs, context, noisy_actions, prev_stacked_actions).to(self.device) # N x self.num_agent_nodes x self.node_emb_dim
-        aggregated_features = node_embs.mean(dim=1)
+        N, num_nodes, hidden_dim = node_embs.shape
+        flat_node_embs = node_embs.view(N * num_nodes, hidden_dim)  # [N*4, 1024]
 
         # Predict noise components
-        translation_noise = self.pred_head_p(aggregated_features).to(self.device)    # [N, 2]
-        rotation_noise = self.pred_head_rot(aggregated_features).to(self.device)    # [N, 1] 
-        gripper_noise = self.pred_head_g(aggregated_features).to(self.device)    # [N, 1]
+        flat_translation_noise = self.pred_head_p(flat_node_embs).to(self.device)    # [N, 2]
+        flat_rotation_noise = self.pred_head_rot(flat_node_embs).to(self.device)    # [N, 1] 
+        flat_gripper_noise = self.pred_head_g(flat_node_embs).to(self.device)    # [N, 1]
         
-        # Combine predictions
-        predicted_noise = torch.cat([translation_noise, rotation_noise, gripper_noise], dim=-1)  # [N, 4]
+
+        per_node_translation = flat_translation_noise.view(N, num_nodes, 2)  # [N, 4, 2]
+        per_node_rotation = flat_rotation_noise.view(N, num_nodes, 1)        # [N, 4, 1]  
+        per_node_gripper = flat_gripper_noise.view(N, num_nodes, 1)          # [N, 4, 1]
+
+        # get action noise
+        predicted_noise = self.recover_se2_action_noise(per_node_translation, per_node_rotation, per_node_gripper)
         
         return predicted_noise, action_noise
+    
+    def recover_se2_action_noise(self, per_node_translation, per_node_rotation, per_node_gripper, agent_keypoints):
+        """
+        Recover SE(2) action noise from per-node adjustments using least squares alignment
+        
+        Args:
+            per_node_translation: [N, 4, 2] - translation adjustments per keypoint
+            per_node_rotation: [N, 4, 1] - rotation effect adjustments per keypoint  
+            per_node_gripper: [N, 4, 1] - gripper state adjustments per keypoint
+            agent_keypoints: [4, 2] - original keypoint positions relative to agent center
+            
+        Returns:
+            action_noise: [N, 4] - SE(2) action noise [tx, ty, theta, gripper_state]
+        """
+        N, num_nodes, _ = per_node_translation.shape
+        action_noise = torch.zeros(N, 4, device=self.device)
+        
+        for i in range(N):
+            # Get the total displacement for each keypoint
+            keypoint_displacements = per_node_translation[i] + per_node_rotation[i].expand(-1, 2)  # [4, 2]
+            
+            # Original keypoint positions (relative to agent center)
+            original_keypoints = agent_keypoints  # [4, 2]
+            
+            # New keypoint positions after displacement
+            new_keypoints = original_keypoints + keypoint_displacements  # [4, 2]
+            
+            # Solve for SE(2) transformation: new = R @ original + t
+            # This is equivalent to the SVD step in the paper but for 2D
+            se2_transform = self._solve_se2_alignment(original_keypoints, new_keypoints)
+            
+            # Extract translation and rotation from SE(2) matrix
+            action_noise[i, 0] = se2_transform[0, 2]  # tx
+            action_noise[i, 1] = se2_transform[1, 2]  # ty  
+            action_noise[i, 2] = torch.atan2(se2_transform[1, 0], se2_transform[0, 0])  # theta
+            
+            # Gripper state: average across all keypoints
+            action_noise[i, 3] = per_node_gripper[i].mean()
+        
+        return action_noise
 
+    def _solve_se2_alignment(self, source_points, target_points):
+        """
+        Solve for SE(2) transformation that best aligns source to target points
+        This is the 2D equivalent of SVD alignment in the paper
+        
+        Args:
+            source_points: [4, 2] - original keypoint positions
+            target_points: [4, 2] - displaced keypoint positions
+            
+        Returns:
+            transform: [3, 3] - SE(2) transformation matrix
+        """
+        # Center the point sets
+        source_centroid = source_points.mean(dim=0)  # [2]
+        target_centroid = target_points.mean(dim=0)  # [2]
+        
+        source_centered = source_points - source_centroid  # [4, 2]
+        target_centered = target_points - target_centroid  # [4, 2]
+        
+        # Compute cross-covariance matrix H = sum(source_i @ target_i^T)
+        H = torch.mm(source_centered.T, target_centered)  # [2, 2]
+        
+        # SVD decomposition
+        U, S, V = torch.svd(H)
+        
+        # Compute rotation matrix
+        R = torch.mm(V, U.T)  # [2, 2]
+        
+        # Handle reflection case (ensure proper rotation)
+        if torch.det(R) < 0:
+            V[:, -1] *= -1
+            R = torch.mm(V, U.T)
+        
+        # Compute translation
+        t = target_centroid - torch.mv(R, source_centroid)  # [2]
+        
+        # Construct SE(2) matrix
+        transform = torch.eye(3, device=self.device)
+        transform[:2, :2] = R
+        transform[:2, 2] = t
+        
+        return transform
+    
     def _linear_beta_schedule(self, beta_start, beta_end, timesteps):
         """Create linear noise schedule"""
         return torch.linspace(beta_start, beta_end, timesteps, device = self.device)
@@ -239,20 +326,6 @@ class InstantPolicyAgent(nn.Module):
         
         return T
 
-    # for large displacement, project to SE2 straight up, no need for se2
-    # our task involves 
-    """
-        # need to read the 2023 Ed paper for this
-        # To calculate a set of transformations Tnoise we use a combination of Langevin Dynamics (described
-        # in Section C.4) and uniform sampling at different scales. We start the training with uniform sam-
-        # pling in ranges of [−0.8,0.8] metres for translation and [−π,π] radians for rotation. After Nnumber
-        # of optimisation steps (10K in our implementation), we incorporate Langevin Dynamics sampling
-        # which we perform every 5 optimisation steps. During this phase, we also reduce the uniform sam-
-        # pling range to [−0.1,0.1] metres for translation and [−π/4,π/4] radians for rotation. Although
-        # creating negative samples using only Langevin Dynamics is sufficient, in practice, we found that
-        # our described sampling strategy leads to faster convergence and more stable training for this specific
-        # application of energy-based models.
-    """
     def _get_noisy_actions(self, clean_actions, timesteps, mode = 'large'):
         """
         Choose mode based on displacement magnitude
