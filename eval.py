@@ -195,7 +195,7 @@ if __name__ == "__main__":
             noisy_actions = get_random_noisy_action(device)
             print(f'initialy noisy action: {noisy_actions}')
             
-            """
+
             # DDIM denoising loop (reverse diffusion)
             num_inference_steps = 50
             timesteps = torch.linspace(num_diffusion_steps-1, 0, num_inference_steps, dtype=torch.long, device=device)
@@ -257,21 +257,21 @@ if __name__ == "__main__":
             action_obj = action_tensor_to_obj(noisy_actions)
 
             print(f'final noisy action: {action_obj.forward_movement, action_obj.rotation, action_obj.state_change}')
-            """
+
 
             ################################################
             # DEBUGGING
             # Start with small noise, not huge noise
-            noisy_actions = torch.randn(1, 4, device=device) * 5  # Much smaller
+            # noisy_actions = torch.randn(1, 4, device=device) * 5  # Much smaller
             
-            # Single prediction at middle timestep
-            predicted_noise, _ = agent(curr_obs, provided_demos, noisy_actions, prev_stacked_actions)
+            # # Single prediction at middle timestep
+            # predicted_noise, _ = agent(curr_obs, provided_demos, noisy_actions, prev_stacked_actions)
             
-            # Direct clean prediction
-            clean_actions = noisy_actions - predicted_noise  # Simple subtraction
-            action_obj = action_tensor_to_obj(clean_actions)
+            # # Direct clean prediction
+            # clean_actions = noisy_actions - predicted_noise  # Simple subtraction
+            # action_obj = action_tensor_to_obj(clean_actions)
             
-
+            ##############################################
             # stack actions 
             prev_stacked_actions[:2] += clean_actions[:2]
             prev_stacked_actions[2] = (clean_actions[2] + prev_stacked_actions[2]) % (2 * torch.pi)

@@ -7,10 +7,15 @@ from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
 version = '2.1.1'
+geo_version = '2'
 
 SAMPLING_RATE = 4
 
 CONFIGS = {
+
+    # GEO ENCODER TRAINING CONFIGS
+    'GEO_NUM_EPOCHS' : 5000,
+    'GEO_BATCH_SIZE' : 10000,
     # AGENT CONFIGS
     'NUM_AGENT_NODES' : 4,
     'PRED_HORIZON' : 5,
