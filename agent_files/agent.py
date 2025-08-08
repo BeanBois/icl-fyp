@@ -69,7 +69,7 @@ class InstantPolicyAgent(nn.Module):
         # need to use clean actions to generate noisy actions 
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large') # noisy action shape is [T * 10]
+        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='small') # noisy action shape is [T * 10]
 
         assert noisy_actions.shape == clean_actions.shape 
         assert action_noise.shape == clean_actions.shape 
@@ -370,7 +370,10 @@ class InstantPolicyAgent(nn.Module):
         
         # Add noise in tangent space
         noisy_se2_normalized = sqrt_alpha * se2_normalized + sqrt_one_minus_alpha * se2_noise
-        noisy_binary = sqrt_alpha * binary_actions + sqrt_one_minus_alpha * binary_noise
+
+        sqrt_alpha_bin = sqrt_alpha.view(-1)
+        sqrt_one_minus_alpha_bin = sqrt_one_minus_alpha.view(-1)
+        noisy_binary = sqrt_alpha_bin * binary_actions + sqrt_one_minus_alpha_bin * binary_noise
         
         # Convert back: denormalize, se(2) → SE(2)
         noisy_se2_unnorm = self._unnormalize_se2(noisy_se2_normalized)
@@ -378,11 +381,11 @@ class InstantPolicyAgent(nn.Module):
         noisy_SE2_flat = noisy_SE2.view(-1,9)
         
         # Combine results
-        noisy_actions = torch.cat([noisy_SE2_flat, noisy_binary], dim=-1)
+        noisy_actions = torch.cat([noisy_SE2_flat, noisy_binary.view(-1,1)], dim=-1)
         
         # get noise added
         moving_noise = noisy_SE2_flat - SE2_actions_flat
-        full_noise = torch.cat([moving_noise, binary_noise], dim=-1)
+        full_noise = torch.cat([moving_noise, binary_noise.view(-1,1)], dim=-1)
         
         return noisy_actions, full_noise
     
