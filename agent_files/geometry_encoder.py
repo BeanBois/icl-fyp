@@ -533,7 +533,7 @@ def generate_query_points_2d_multi_object(pseudogame, device,  num_positive_per_
     
     # Generate positive points for each object
     for obj_idx, obj in enumerate(pseudogame.objects):
-        obj_keypoints = obj.get_keypoints()
+        obj_keypoints = obj.get_keypoints(frame='world')
         tl, tr, br, bl, center = [v for _, v in obj_keypoints.items()]
         
         # Calculate object dimensions
