@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Dict, List, Tuple
 
-from graph.aux import NodeType, EdgeType
+from graph.graph_aux import NodeType, EdgeType
 
 class HeteroAttentionLayer(nn.Module):
     def __init__(self, 

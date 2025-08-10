@@ -1,5 +1,5 @@
 
-from .aux import *
+from .graph_aux import *
 import numpy as np 
 
 # change this to change task being ran 
