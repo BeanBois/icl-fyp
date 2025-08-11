@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn 
 from .instant_policy import InstantPolicy 
+import numpy as np
 # main agent file
 # the noise addition process is done in SE2 space
 # 
@@ -34,7 +35,7 @@ class InstantPolicyAgent(nn.Module):
                 edge_pos_dim=edge_pos_dim
                 )
         self.max_translation = max_translation
-        self.max_rotation = torch.deg2rad(max_rotation)
+        self.max_rotation = torch.deg2rad(torch.tensor([max_rotation], device=device))
         self.device = device 
         self.num_diffusion_steps = num_diffusion_steps
         self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
