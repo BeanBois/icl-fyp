@@ -486,6 +486,7 @@ def extract_object_pixels_from_game(pseudogame, device):
     Returns a dictionary mapping object indices to their pixel coordinates
     """
     screen_pixels = pseudogame._get_screen_pixels()
+    player_position = np.array(pseudogame.get_player_keypoints(frame='world')['center'])
     coords = np.array([[(x,y) for y in range(pseudogame.screen_height)] 
                       for x in range(pseudogame.screen_width)])
     
@@ -507,7 +508,7 @@ def extract_object_pixels_from_game(pseudogame, device):
         for i, color in enumerate(unique_colors):
             color_mask = np.all(object_pixels == color, axis=1)
             if np.any(color_mask):
-                object_pixel_groups[i] = torch.tensor(object_coords[color_mask], dtype=torch.float32, device=device)
+                object_pixel_groups[i] = torch.tensor(object_coords[color_mask] - player_position, dtype=torch.float32, device=device)
         
         return object_pixel_groups
     else:
@@ -534,8 +535,7 @@ def generate_query_points_2d_multi_object(pseudogame, device,  num_positive_per_
     # Generate positive points for each object
     for obj_idx, obj in enumerate(pseudogame.objects):
         obj_keypoints = obj.get_keypoints(frame='world')
-        tl, tr, br, bl, center = [v for _, v in obj_keypoints.items()]
-        
+        tl, tr, br, bl, center = [v for _, v in obj_keypoints.items()]  
         # Calculate object dimensions
         width = abs(br[0] - bl[0])
         height = abs(br[1] - tr[1])
