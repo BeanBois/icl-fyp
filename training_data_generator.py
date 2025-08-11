@@ -5,6 +5,10 @@ from typing import Tuple, List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 
+from tasks2d import LousyPacmanPseudoGame as PseudoGame 
+from tasks2d import LousyPacmanTensorizedPseudoGame as TensorizedPseudoGame
+from configs import CONFIGS
+
 class TensorizedPseudoDemoGenerator:
     """
     Tensorized version of PseudoDemoGenerator that maintains the same API
@@ -359,5 +363,5 @@ def create_efficient_demo_generator(device='cpu', batch_size=32, **kwargs):
 # curr_obs, context, actions = demo_gen.get_batch_samples(64)
 
 # New way (same API, but faster):
-# demo_gen = TensorizedPseudoDemoGenerator(device='cuda', num_demos=5, batch_size=32)
-# curr_obs, context, actions = demo_gen.get_batch_samples(64)  # Will use tensorized path
+demo_gen = TensorizedPseudoDemoGenerator(device='cpu', num_demos=5, batch_size=32)
+curr_obs, context, actions = demo_gen.get_batch_samples(batch_size=64)  # Will use tensorized path

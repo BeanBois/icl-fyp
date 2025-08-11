@@ -10,3 +10,7 @@ from .lousy_pacman import PSEUDO_MAX_ROTATION as LousyPacmanPseudoMaxRot
 
 
 from .lousy_pacman import RED, YELLOW, BLACK, GREEN, BLUE, PURPLE, WHITE
+
+
+from .lousy_pacman import TensorizedPseudoGame as LousyPacmanTensorizedPseudoGame
+

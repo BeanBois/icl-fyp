@@ -203,7 +203,7 @@ class TensorizedPseudoGame:
                                             (self.batch_size, self.num_objects, 2), device=self.device).float(),
             'object_types': torch.randint(0, len(AVAILABLE_OBJECTS), 
                                         (self.batch_size, self.num_objects), device=self.device),
-            'object_dimensions': torch.rand(self.batch_size, self.num_objects, 2, device=self.device) * 20 + 10  # random width/height
+            'object_dimensions': torch.rand(self.batch_size, self.num_objects, 2, device=self.device) * 60 + 30  # random width/height
         }
         return batch_configs
     
@@ -323,7 +323,7 @@ class TensorizedPseudoGame:
         
         # Change states for 10% of data points
         state_change_mask = torch.rand(batch_size, num_waypoints, device=self.device) < 0.1
-        augmented[state_change_mask, 2] = 1 - augmented[state_change_mask, 2]
+        augmented[:, :, 2][state_change_mask] = 1 - augmented[:, :, 2][state_change_mask]
         
         return augmented
     
@@ -413,4 +413,4 @@ def generate_efficient_data(num_batches: int = 10, batch_size: int = 32, device:
     return all_trajectories
 
 # Example usage:
-# trajectories = generate_efficient_data(num_batches=5, batch_size=64, device='cuda')
+trajectories = generate_efficient_data(num_batches=5, batch_size=64, device='cpu')

@@ -13,12 +13,12 @@ import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from typing import List, Tuple, Dict
-
+from training_data_generator import TensorizedPseudoDemoGenerator
 # move these constants to CONFIG FILES 
 
 
 
-
+# unused for now
 class PseudoDemoGenerator:
 
     def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
@@ -180,13 +180,21 @@ class Trainer:
     def __init__(self, agent, num_demos_for_context, num_agent_nodes = 4,pred_horizon = 8, min_num_waypoints = 2, max_num_waypoints = 6, demo_length=10, batch_size = 10,device='cuda'):
         self.agent = agent
         self.device = device 
-        self.data_generator = PseudoDemoGenerator(
-                num_demos = num_demos_for_context + 1,  
-                max_num_waypoints = max_num_waypoints, 
-                min_num_waypoints=min_num_waypoints,
-                demo_length = demo_length,
-                device=self.device
-                )
+        # self.data_generator = PseudoDemoGenerator(
+        #         num_demos = num_demos_for_context + 1,  
+        #         max_num_waypoints = max_num_waypoints, 
+        #         min_num_waypoints=min_num_waypoints,
+        #         demo_length = demo_length,
+        #         device=self.device
+        #         )
+        self.data_generator = TensorizedPseudoDemoGenerator(
+            device=device,
+            num_demos= num_demos_for_context + 1, 
+            min_num_waypoints= min_num_waypoints,
+            max_num_waypoints= max_num_waypoints,
+            demo_length= demo_length,
+            batch_size=batch_size,
+        )
         self.agent_keypoint = None
         self.batch_size = batch_size
         self.pred_horizon = pred_horizon
