@@ -204,7 +204,6 @@ class Trainer:
         total_loss = 0.0
         curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
         agent_keypoints = self.data_generator.get_agent_keypoints()
-        breakpoint()
         
         for i in range(self.batch_size):
             curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]

@@ -98,9 +98,6 @@ class InstantPolicyAgent(nn.Module):
 
         return predicted_per_node_noise, action_noise
     
- 
-
-
     def _solve_se2_alignment(self, source_points, target_points): # unused
         """
         Solve for SE(2) transformation that best aligns source to target points
