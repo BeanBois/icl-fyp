@@ -69,8 +69,8 @@ class InstantPolicyAgent(nn.Module):
         # need to use clean actions to generate noisy actions 
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        # noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='small') # noisy action shape is [T * 10]
-        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large') # noisy action shape is [T * 10]
+        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='small') # noisy action shape is [T * 10]
+        # noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large') # noisy action shape is [T * 10]
 
         assert noisy_actions.shape == clean_actions.shape 
         assert action_noise.shape == clean_actions.shape 
