@@ -22,14 +22,14 @@ from typing import List, Tuple, Dict
 class PseudoDemoGenerator:
 
     def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
-                 sample_rate=5, num_threads=4):
+                 num_threads=4, demo_length = 10):
         self.num_demos = num_demos
         self.min_num_waypoints = min_num_waypoints
         self.max_num_waypoints = max_num_waypoints
         self.device = device
-        self.sample_rate = sample_rate
         self.agent_key_points = None
         self.translation_scale = 500
+        self.demo_length = 10
         # change this to take in argument instead
         self.max_translation = CONFIGS['TRAINING_MAX_TRANSLATION']
         self.max_rotation = np.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
@@ -125,13 +125,13 @@ class PseudoDemoGenerator:
             augmented = self.augmented
             pseudo_demo = self._run_game(biased=biased, augmented=augmented)
             observations = pseudo_demo.observations
-            sampled_obs = observations[::self.sample_rate]
+            sample_rate = len(observations) // self.demo_length
+            sampled_obs = observations[::sample_rate][:self.demo_length]
             context.append(sampled_obs)
         return context
             
     def _get_ground_truth(self):
         pseudo_demo = self._run_game(biased=True, augmented=False)
-        true_obs = pseudo_demo.observations[::self.sample_rate]
         pd_actions = pseudo_demo.get_actions(mode='se2')
 
         se2_actions = np.array([action[0].flatten() for action in pd_actions]) # n x 9
@@ -145,8 +145,11 @@ class PseudoDemoGenerator:
         )          
         temp = actions.shape
         actions = self._accumulate_actions(actions)
+        sample_rate = actions.shape[0] // self.demo_length
         assert temp == actions.shape
-        actions = actions[::self.sample_rate]
+        actions = actions[::sample_rate][:self.demo_length]
+        true_obs = pseudo_demo.observations[::sample_rate][:self.demo_length]
+
 
         return true_obs[0], actions
     
@@ -173,13 +176,14 @@ class PseudoDemoGenerator:
 
 class Trainer: 
 
-    def __init__(self, agent, num_demos_for_context, num_agent_nodes = 4,pred_horizon = 8, min_num_waypoints = 2, max_num_waypoints = 6, batch_size = 10,device='cuda'):
+    def __init__(self, agent, num_demos_for_context, num_agent_nodes = 4,pred_horizon = 8, min_num_waypoints = 2, max_num_waypoints = 6, demo_length=10, batch_size = 10,device='cuda'):
         self.agent = agent
         self.device = device 
         self.data_generator = PseudoDemoGenerator(
                 num_demos = num_demos_for_context + 1,  
                 max_num_waypoints = max_num_waypoints, 
                 min_num_waypoints=min_num_waypoints,
+                demo_length = demo_length,
                 device=self.device
                 )
         self.agent_keypoint = None
@@ -318,7 +322,7 @@ if __name__ == "__main__":
     geometry_encoder_filename = f'geometry_encoder_2d_v{geo_version}.pth'
     node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
     grouping_radius = CONFIGS['GROUPING_RADIUS']
-    full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= CONFIGS['GEO_NUM_EPOCHS'], num_samples= CONFIGS['GEO_BATCH_SIZE'])
+    # full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= CONFIGS['GEO_NUM_EPOCHS'], num_samples= CONFIGS['GEO_BATCH_SIZE'])
     model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 
@@ -343,8 +347,9 @@ if __name__ == "__main__":
                     num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
                     pred_horizon=CONFIGS['PRED_HORIZON'],
                     num_demos_for_context=CONFIGS['NUM_DEMO_GIVEN'],
-                    max_num_waypoints=CONFIGS['DEMO_MAX_LENGTH'],
-                    min_num_waypoints=CONFIGS['DEMO_MIN_LENGTH'],
+                    max_num_waypoints=CONFIGS['MAX_NUM_WAYPOINTS'],
+                    min_num_waypoints=CONFIGS['MIN_NUM_WAYPOINTS'],
+                    demo_length=CONFIGS['DEMO_MAX_LENGTH'],
                     batch_size=CONFIGS['BATCH_SIZE']
                     )
     
