@@ -54,14 +54,18 @@ class PseudoGame:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.screen = np.zeros([self.screen_width, self.screen_height, 3])
+        self.max_length = MAX_LENGTH
+        self.min_num_sampled_waypoints = min_num_sampled_waypoints
+        self.max_num_sampled_waypoints = max_num_sampled_waypoints
         self.t = 0
         self.game_config = None 
+
         # setup game by creating relevant object
         self.objects = []
         self.num_objects = num_objects
         self._populate_pseudo_game()
-        self.max_length = MAX_LENGTH
-        self.num_waypoints_used = np.random.randint(min_num_sampled_waypoints, max_num_sampled_waypoints)
+
+        self.num_waypoints_used = np.random.randint(self.min_num_sampled_waypoints, self.max_num_sampled_waypoints)
         self.done = False
         self.biased = biased
         self.augmented = augmented
@@ -73,6 +77,15 @@ class PseudoGame:
     # this function does a run of the pseudogame and returns the observations in pointclouds 
     # it will be a list of 'frames' at each timepoints
     def reset_game(self,shuffle = True):
+        self.t = 0
+        self.objects = []
+        self.observations = []
+        self.actions = []
+        self.waypoints = []
+        self.num_waypoints_used = np.random.randint(self.min_num_sampled_waypoints, self.max_num_sampled_waypoints)
+        self.done = False
+        self._wp_offset = 0
+        self.waypoints = self._sample_waypoints()
         self._populate_pseudo_game()
 
     def set_augmented(self, _augmented):
