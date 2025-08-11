@@ -1,5 +1,5 @@
 # import game
-from configs import SCREEN_HEIGHT, SCREEN_WIDTH, PseudoGame
+from configs import SCREEN_HEIGHT, SCREEN_WIDTH, PseudoGame, action_mode
 
 # import agent
 from agent_files import InstantPolicyAgent
@@ -206,7 +206,7 @@ class Trainer:
         
         for i in range(self.batch_size):
             curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
-            predicted_per_node_noise, action_noise_flat = self.agent(curr_obs, context, clean_actions) 
+            predicted_per_node_noise, action_noise_flat = self.agent(curr_obs, context, clean_actions, action_mode) 
 
             actual_pn_denoising_dir = self.get_pnn_from_noise(agent_keypoints, action_noise_flat)
             assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape # (num_agent_nodes, 3, 1)
@@ -315,7 +315,7 @@ class Trainer:
 
 # Usage example:
 if __name__ == "__main__":
-    from configs import CONFIGS, version, _type, geo_version, action_mode
+    from configs import CONFIGS, version, _type, geo_version
     from agent_files import GeometryEncoder2D, full_train, initialise_geometry_encoder
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     

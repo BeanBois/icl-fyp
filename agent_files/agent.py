@@ -2,8 +2,6 @@
 import torch
 import torch.nn as nn 
 from .instant_policy import InstantPolicy 
-from ..configs import action_mode
-
 # main agent file
 # the noise addition process is done in SE2 space
 # 
@@ -68,7 +66,8 @@ class InstantPolicyAgent(nn.Module):
     def forward(self,
                 curr_obs,
                 context,
-                clean_actions): # [T * 10], T is the demo length 
+                clean_actions,
+                action_mode): # [T * 10], T is the demo length 
         # need to use clean actions to generate noisy actions 
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
