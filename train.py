@@ -27,7 +27,7 @@ class PseudoDemoGenerator:
         self.min_num_waypoints = min_num_waypoints
         self.max_num_waypoints = max_num_waypoints
         self.device = device
-        self.agent_key_points = None
+        self.agent_key_points = PseudoGame.agent_keypoints
         self.translation_scale = 500
         self.demo_length = demo_length
         # change this to take in argument instead
@@ -88,9 +88,8 @@ class PseudoDemoGenerator:
         curr_obs, clean_actions = self._get_ground_truth(pseudo_game)
         return curr_obs, context, clean_actions
 
+    # TODO : FIX
     def get_agent_keypoints(self):
-        if self.agent_key_points is None:
-            return torch.zeros((4, 2), device=self.device)
             
         agent_keypoints = torch.zeros((len(self.agent_key_points), 2), device=self.device)
         agent_keypoints[0] = torch.tensor(self.agent_key_points['front'], device=self.device)
@@ -177,7 +176,9 @@ class PseudoDemoGenerator:
         cumulative_actions = torch.cat([cumulative_se2_flat, state_actions], dim=1)
         
         return cumulative_actions
-    
+
+    def _process_demos(self):
+        return    
 
 class Trainer: 
 
@@ -203,6 +204,7 @@ class Trainer:
         total_loss = 0.0
         curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
         agent_keypoints = self.data_generator.get_agent_keypoints()
+        breakpoint()
         
         for i in range(self.batch_size):
             curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]

@@ -103,8 +103,9 @@ class InstantPolicy(nn.Module):
     # TODO: SA here
     def _process_observation_to_tensor(self, obs):
         point_clouds = torch.tensor(obs['point-clouds'], device = self.device, dtype=torch.float32)
-        coords = torch.tensor(obs['coords'], device = self.device, dtype=torch.float32)
         agent_pos = torch.tensor(obs['agent-pos'], device = self.device, dtype=torch.float32)
+        agent_center = agent_pos[0]
+        coords = torch.tensor(obs['coords'], device = self.device, dtype=torch.float32) - agent_center
         agent_state = obs['agent-state']
         agent_orientation = torch.tensor(obs['agent-orientation'], device = self.device, dtype=torch.float32) # angle in degree
         done = torch.tensor(obs['done'], device = self.device)

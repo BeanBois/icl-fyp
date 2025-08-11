@@ -36,7 +36,7 @@ def is_obstacle_blocking(player_pos, goal_center, obst_center, obst_width, obst_
 
 
 class PseudoGame:
-
+    agent_keypoints = PseudoPlayer(100,100).get_keypoints(frame='self')
     def __init__(self, 
                  num_objects = NUM_OF_OBJECTS,
                  max_num_sampled_waypoints = MAX_NUM_SAMPLED_WAYPOINTS, 
