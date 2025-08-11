@@ -84,9 +84,9 @@ class PseudoGame:
         self.waypoints = []
         self.num_waypoints_used = np.random.randint(self.min_num_sampled_waypoints, self.max_num_sampled_waypoints)
         self.done = False
+        self._populate_pseudo_game()
         self._wp_offset = 0
         self.waypoints = self._sample_waypoints()
-        self._populate_pseudo_game()
 
     def set_augmented(self, _augmented):
         self.augmented = _augmented
