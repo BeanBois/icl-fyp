@@ -70,12 +70,8 @@ class PseudoDemoGenerator:
 
         
         # Stack clean actions into a single tensor [batch_size, pred_horizon, 4]
-        clean_actions_batch = torch.stack(clean_actions_list, dim=0)
-
-        
-        # Store agent keypoints from the last generated sample (they should all be the same)
-        if hasattr(self._thread_local, 'agent_key_points') and self._thread_local.agent_key_points is not None:
-            self.agent_key_points = self._thread_local.agent_key_points
+        # clean_actions_batch = torch.stack(clean_actions_list, dim=0)
+        clean_actions_batch = clean_actions_list
         
         return curr_obs_batch, context_batch, clean_actions_batch
 
@@ -88,9 +84,8 @@ class PseudoDemoGenerator:
         curr_obs, clean_actions = self._get_ground_truth(pseudo_game)
         return curr_obs, context, clean_actions
 
-    # TODO : FIX
     def get_agent_keypoints(self):
-            
+    
         agent_keypoints = torch.zeros((len(self.agent_key_points), 2), device=self.device)
         agent_keypoints[0] = torch.tensor(self.agent_key_points['front'], device=self.device)
         agent_keypoints[1] = torch.tensor(self.agent_key_points['back-left'], device=self.device)
@@ -128,7 +123,7 @@ class PseudoDemoGenerator:
         for _ in range(self.num_demos - 1):
             pseudo_demo = self._run_game(pseudo_game)
             observations = pseudo_demo.observations
-            sample_rate = len(observations) // self.demo_length
+            sample_rate = min(len(observations) // self.demo_length,1)
             sampled_obs = observations[::sample_rate][:self.demo_length]
             context.append(sampled_obs)
         return context
@@ -149,7 +144,7 @@ class PseudoDemoGenerator:
         )          
         temp = actions.shape
         actions = self._accumulate_actions(actions)
-        sample_rate = actions.shape[0] // self.demo_length
+        sample_rate = min(actions.shape[0] // self.demo_length,1)
         assert temp == actions.shape
         actions = actions[::sample_rate][:self.demo_length]
         true_obs = pseudo_demo.observations[::sample_rate][:self.demo_length]
