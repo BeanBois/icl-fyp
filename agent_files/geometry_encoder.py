@@ -365,12 +365,13 @@ class GeometryEncoder2D(nn.Module):
     Simple geometry encoder that outputs node_embd_dim features directly
     Follows Instant Policy paper: 2 Set Abstraction layers, 16 output nodes
     """
-    def __init__(self, radius, device, node_embd_dim=16):
+    def __init__(self, num_centers, radius, device, node_embd_dim=16):
         super().__init__()
         self.device = device
+        self.num_centers = num_centers
         # Two Set Abstraction layers as described in Instant Policy paper
-        self.sa_layer1 = SetAbstractionLayer(num_centers=32, radius=radius, output_dim=64, device=self.device).to(self.device)
-        self.sa_layer2 = SetAbstractionLayer(num_centers=16, radius=radius, output_dim=node_embd_dim, device=self.device).to(self.device)
+        self.sa_layer1 = SetAbstractionLayer(num_centers=self.num_centers * 2, radius=radius, output_dim=64, device=self.device).to(self.device)
+        self.sa_layer2 = SetAbstractionLayer(num_centers=self.num_centers, radius=radius, output_dim=node_embd_dim, device=self.device).to(self.device)
     
     def forward(self, point_cloud_2d):
         """
@@ -451,10 +452,10 @@ class OccupancyNetwork2D(nn.Module):
     """
     Complete occupancy network for pre-training geometry encoder
     """
-    def __init__(self, radius, device, node_embd_dim=16):
+    def __init__(self, num_centers, radius, device, node_embd_dim=16):
         super().__init__()
         self.device = device
-        self.geometry_encoder = GeometryEncoder2D(radius=radius, node_embd_dim=node_embd_dim, device=self.device).to(self.device)
+        self.geometry_encoder = GeometryEncoder2D(num_centers=num_centers, radius=radius, node_embd_dim=node_embd_dim, device=self.device).to(self.device)
         self.occupancy_decoder = OccupancyDecoder2D(feature_dim=node_embd_dim, device=self.device).to(self.device)
     
     def forward(self, point_cloud_2d, query_points_2d):
@@ -640,7 +641,7 @@ def generate_training_data_multi_object(device, num_samples=1000):
 # TRAINING FUNCTIONS
 # ===========================
 
-def train_occupancy_network_multi_object(device, radius, num_epochs=100, lr=1e-3, node_embd_dim=16, num_samples = 10000):
+def train_occupancy_network_multi_object(device, num_centers, radius, num_epochs=100, lr=1e-3, node_embd_dim=16, num_samples = 10000):
     """
     Train the occupancy network for pre-training geometry encoder with multiple objects
     """
@@ -653,7 +654,7 @@ def train_occupancy_network_multi_object(device, radius, num_epochs=100, lr=1e-3
         return None
     
     # Initialize model
-    model = OccupancyNetwork2D(radius = radius, node_embd_dim=node_embd_dim, device=device).to(device)
+    model = OccupancyNetwork2D(num_centers=num_centers, radius=radius, node_embd_dim=node_embd_dim, device=device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     
     print("Training occupancy network with multiple objects...")
@@ -724,8 +725,8 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
         return None
 
 
-def full_train(node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000):
-    trained_model = train_occupancy_network_multi_object(device, radius=radius, num_epochs=num_epochs, node_embd_dim=node_embd_dim, num_samples=num_samples)
+def full_train(num_centers, node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000):
+    trained_model = train_occupancy_network_multi_object(device, num_centers=num_centers, radius=radius, num_epochs=num_epochs, node_embd_dim=node_embd_dim, num_samples=num_samples)
     if trained_model:
         torch.save(trained_model.geometry_encoder.state_dict(), filename)
         
@@ -740,6 +741,7 @@ if __name__ == "__main__":
     device = 'cpu'    
     # Example input: some 2D coordinates
     # sample_coords = torch.tensor([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]], dtype=torch.float32)
+    full_train(8, 16, device, 50, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000)
     
     # # Get geometry features
     # features, positions = geometry_encoder(sample_coords)

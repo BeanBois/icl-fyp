@@ -657,7 +657,6 @@ class PseudoGame:
                         waypoints_with_player_state[idx, :-1] = waypoint
                         waypoints_with_player_state[idx, -1] = PlayerState.NOT_EATING.value  
 
-
         if self.augmented:
             waypoints_with_player_state = self._augment_waypoints(waypoints_with_player_state)
         return waypoints_with_player_state
