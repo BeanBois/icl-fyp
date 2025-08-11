@@ -19,19 +19,6 @@ from typing import List,Dict,Tuple
 from collections import defaultdict 
 
 
-# TODO: add Pointnet++ and SA layer! for scene node embedding
-# def SinCosEdgeEmbedding(source, dest, device, D=3):
-#     num_feature = source.shape[0]
-#     embedding = torch.zeros((num_feature, 2 * D), device=device)
-#     diff = torch.tensor(dest - source)
-#     for d in range(D):
-#         sin_vals = torch.sin(2**d * torch.pi * diff)
-#         cos_vals = torch.cos(2**d * torch.pi * diff)
-#         embedding[:, 2*d] = sin_vals
-#         embedding[:, 2*d+1] = cos_vals
-    
-#     return embedding
-
 def SinCosEdgeEmbedding(source, dest, device, D=3):
     """
     Fixed version that produces EXACTLY the same output as original, just handles NaN
@@ -149,11 +136,6 @@ class InstantPolicy(nn.Module):
                 x += graph.timestep * self.num_agent_nodes
             else:
                 x += self.pred_horizon * self.num_agent_nodes
-
-            #### FIX HERE ####
-            # if graph.timestep > self.pred_horizon: # TODO : PROBLEM HERE 
-                # x += (graph.timestep - self.pred_horizon) * self.num_agent_nodes
-            #### FIX HERE ####
 
 
             x = torch.tensor([x], device=self.device, dtype=torch.long)

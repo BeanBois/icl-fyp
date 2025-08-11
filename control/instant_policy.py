@@ -19,18 +19,6 @@ from typing import List,Dict,Tuple
 from collections import defaultdict 
 
 
-# TODO: add Pointnet++ and SA layer! for scene node embedding
-# def SinCosEdgeEmbedding(source, dest, device, D=3):
-#     num_feature = source.shape[0]
-#     embedding = torch.zeros((num_feature, 2 * D), device=device)
-#     diff = torch.tensor(dest - source)
-#     for d in range(D):
-#         sin_vals = torch.sin(2**d * torch.pi * diff)
-#         cos_vals = torch.cos(2**d * torch.pi * diff)
-#         embedding[:, 2*d] = sin_vals
-#         embedding[:, 2*d+1] = cos_vals
-    
-#     return embedding
 
 def SinCosEdgeEmbedding(source, dest, device, D=3):
     """
@@ -110,7 +98,7 @@ class InstantPolicy(nn.Module):
 
     # εθ(Gk) = ψ(G(σ(Ga_l),ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N)))
     # might be going abuot it the wrong way. bottom up > top bottom
-    # TODO: SA here
+
     def _process_observation_to_tensor(self, obs):
         point_clouds = torch.tensor(obs['point-clouds'], device = self.device, dtype=torch.float32)
         coords = torch.tensor(obs['coords'], device = self.device, dtype=torch.float32)
@@ -148,7 +136,7 @@ class InstantPolicy(nn.Module):
                 x += self.pred_horizon * self.num_agent_nodes
 
             #### FIX HERE ####
-            # if graph.timestep > self.pred_horizon: # TODO : PROBLEM HERE 
+            # if graph.timestep > self.pred_horizon: #  : PROBLEM HERE 
                 # x += (graph.timestep - self.pred_horizon) * self.num_agent_nodes
             #### FIX HERE ####
 

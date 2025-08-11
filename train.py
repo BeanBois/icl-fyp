@@ -18,7 +18,7 @@ from typing import List, Tuple, Dict
 
 
 
-# TODO: add Arg for Max Length 
+
 class PseudoDemoGenerator:
 
     def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
@@ -29,7 +29,7 @@ class PseudoDemoGenerator:
         self.device = device
         self.agent_key_points = None
         self.translation_scale = 500
-        self.demo_length = 10
+        self.demo_length = demo_length
         # change this to take in argument instead
         self.max_translation = CONFIGS['TRAINING_MAX_TRANSLATION']
         self.max_rotation = np.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
@@ -51,7 +51,6 @@ class PseudoDemoGenerator:
             clean_actions_batch: Tensor of shape [batch_size, pred_horizon, 4]
         """
         # Use ThreadPoolExecutor to generate samples in parallel
-        # TODO : to add random, biased and augmented here 
         with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             # Submit all sample generation tasks
 

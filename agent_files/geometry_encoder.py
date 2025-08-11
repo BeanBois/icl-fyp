@@ -1,5 +1,4 @@
-# contains all that is needed for SA layer
-# TODO: fix this later, claude is not clauding rn 
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -697,6 +696,79 @@ def train_occupancy_network_multi_object(device, num_centers, radius, num_epochs
     print("Training completed!")
     return model
 
+def train_occupancy_network_multi_object_mini_batch(device, num_centers, radius, num_epochs=100, 
+                                        lr=1e-3, node_embd_dim=16, num_samples=10000, batch_size=32):
+    """
+    Train the occupancy network for pre-training geometry encoder with multiple objects
+    """
+    print("Generating training data for multiple objects...")
+    training_data = generate_training_data_multi_object(device, num_samples=num_samples)
+    print(f"Generated {len(training_data)} training samples")
+    
+    if len(training_data) == 0:
+        print("No training data generated. Please check your PseudoGame import and implementation.")
+        return None
+    
+    # Initialize model
+    model = OccupancyNetwork2D(num_centers=num_centers, radius=radius, 
+                              node_embd_dim=node_embd_dim, device=device).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    
+    print(f"Training occupancy network with multiple objects using batch size {batch_size}...")
+    
+    for epoch in range(num_epochs):
+        total_loss = 0
+        num_batches = 0
+        
+        # Process data in mini-batches
+        for i in range(0, len(training_data), batch_size):
+            # Get batch of samples
+            batch_samples = training_data[i:i+batch_size]
+            
+            # Collect data from all samples in the batch
+            point_clouds = []
+            pos_queries = []
+            neg_queries = []
+            
+            # Filter out empty samples and collect valid ones
+            valid_samples = []
+            for sample in batch_samples:
+                if sample['point_cloud'].shape[0] > 0:  # Skip empty point clouds
+                    valid_samples.append(sample)
+            
+            if len(valid_samples) == 0:
+                continue
+                
+            point_clouds = torch.cat([sample['point_cloud'] for sample in valid_samples], dim=0)
+            pos_queries = torch.cat([sample['positive_queries'] for sample in valid_samples], dim=0)
+            neg_queries = torch.cat([sample['negative_queries'] for sample in valid_samples], dim=0)
+            
+            # Forward pass on the batch
+            pos_pred = model(point_clouds, pos_queries)
+            neg_pred = model(point_clouds, neg_queries)
+            
+            # Compute loss for the batch
+            pos_target = torch.ones_like(pos_pred)
+            neg_target = torch.zeros_like(neg_pred)
+            pos_loss = F.binary_cross_entropy(pos_pred, pos_target)
+            neg_loss = F.binary_cross_entropy(neg_pred, neg_target)
+            loss = pos_loss + neg_loss
+            
+            # Backward pass
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+            num_batches += 1
+        
+        avg_loss = total_loss / max(num_batches, 1)
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch}/{num_epochs}, Average Loss: {avg_loss:.4f}")
+    
+    print("Training completed!")
+    return model
+
 def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, device):
     try:
         # Load the state dict
@@ -726,7 +798,7 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
 
 
 def full_train(num_centers, node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000):
-    trained_model = train_occupancy_network_multi_object(device, num_centers=num_centers, radius=radius, num_epochs=num_epochs, node_embd_dim=node_embd_dim, num_samples=num_samples)
+    trained_model = train_occupancy_network_multi_object_mini_batch(device, num_centers=num_centers, radius=radius, num_epochs=num_epochs, node_embd_dim=node_embd_dim, num_samples=num_samples)
     if trained_model:
         torch.save(trained_model.geometry_encoder.state_dict(), filename)
         
@@ -741,7 +813,7 @@ if __name__ == "__main__":
     device = 'cpu'    
     # Example input: some 2D coordinates
     # sample_coords = torch.tensor([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]], dtype=torch.float32)
-    full_train(8, 16, device, 50, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000)
+    full_train(8, 16, device, 30, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=200)
     
     # # Get geometry features
     # features, positions = geometry_encoder(sample_coords)
