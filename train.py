@@ -315,13 +315,13 @@ class Trainer:
 
 # Usage example:
 if __name__ == "__main__":
-    from configs import CONFIGS, version, _type, geo_version
+    from configs import CONFIGS, version, _type, geo_version, action_mode
     from agent_files import GeometryEncoder2D, full_train, initialise_geometry_encoder
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
 
     # print statement
-    print(f'training agent: {_type}, version: {version}')
+    print(f'training agent: {_type}, version: {version}, action mode : {action_mode}')
     # train geometry encoder
     geometry_encoder_filename = f'geometry_encoder_2d_v{geo_version}.pth'
     node_embd_dim = CONFIGS['NUM_ATT_HEADS'] * CONFIGS['HEAD_DIM']
@@ -338,6 +338,7 @@ if __name__ == "__main__":
                 device=device, 
                 geometry_encoder=geometry_encoder,
                 max_translation=CONFIGS['TRAINING_MAX_TRANSLATION'],
+                max_rotation=CONFIGS['MAX_ROTATION_DEG'],
                 num_diffusion_steps=CONFIGS['NUM_DIFFUSION_STEPS'],
                 num_agent_nodes=CONFIGS['NUM_AGENT_NODES'],
                 pred_horizon=CONFIGS['PRED_HORIZON'],

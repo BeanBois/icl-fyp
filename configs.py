@@ -6,10 +6,11 @@ from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = '4s'
+version = '4'
+action_mode = 'small' #| 'large'
 geo_version = '2'
 
-SAMPLING_RATE = 1
+SAMPLING_RATE = 10 # Vibes, the down sampling shouldnt exceeed 10 frames 
 
 CONFIGS = {
 
@@ -49,7 +50,7 @@ CONFIGS = {
     'NUM_STEPS_PER_EPOCH' : 100,
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
-    'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
+    'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}_{action_mode}.pth",
     'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS

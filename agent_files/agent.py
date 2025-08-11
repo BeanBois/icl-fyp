@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn 
 from .instant_policy import InstantPolicy 
+from ..configs import action_mode
 
 # main agent file
 # the noise addition process is done in SE2 space
@@ -11,6 +12,7 @@ class InstantPolicyAgent(nn.Module):
     def __init__(self,
                 device,
                 max_translation,
+                max_rotation,
                 geometry_encoder,
                 num_diffusion_steps = 100,
                 num_agent_nodes = 4, 
@@ -34,6 +36,7 @@ class InstantPolicyAgent(nn.Module):
                 edge_pos_dim=edge_pos_dim
                 )
         self.max_translation = max_translation
+        self.max_rotation = torch.deg2rad(max_rotation)
         self.device = device 
         self.num_diffusion_steps = num_diffusion_steps
         self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
@@ -69,8 +72,7 @@ class InstantPolicyAgent(nn.Module):
         # need to use clean actions to generate noisy actions 
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='small') # noisy action shape is [T * 10]
-        # noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode='large') # noisy action shape is [T * 10]
+        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode=action_mode) # noisy action shape is [T * 10]
 
         assert noisy_actions.shape == clean_actions.shape 
         assert action_noise.shape == clean_actions.shape 
@@ -393,10 +395,10 @@ class InstantPolicyAgent(nn.Module):
     def _normalise_se2(self,se2_actions):
         normalized = se2_actions.clone()
         normalized[...,:2] /= self.max_translation
-        normalized[...,2:3] /= torch.pi 
+        normalized[...,2:3] /= self.max_rotation
         return normalized
 
     def _unnormalize_se2(self, normalized_se2):
         translation = normalized_se2[..., :2] * self.max_translation
-        rotation = normalized_se2[..., 2:3] * torch.pi  
+        rotation = normalized_se2[..., 2:3] * self.max_rotation
         return torch.cat([translation, rotation], dim=-1)
