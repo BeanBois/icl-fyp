@@ -54,6 +54,7 @@ class PseudoDemoGenerator:
         # TODO : to add random, biased and augmented here 
         with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
             # Submit all sample generation tasks
+
             futures = [executor.submit(self._generate_single_sample) for _ in range(batch_size)]
             
             # Collect results as they complete
@@ -81,8 +82,11 @@ class PseudoDemoGenerator:
 
     def _generate_single_sample(self) -> Tuple[dict, List, torch.Tensor]:
         """Generate a single training sample (thread-safe)"""
-        context = self._get_context()   
-        curr_obs, clean_actions = self._get_ground_truth()
+        biased = np.random.rand() < self.biased_odds
+        augmented = self.augmented # for now 
+        pseudo_game = self._make_game(biased, augmented)
+        context = self._get_context(pseudo_game)   
+        curr_obs, clean_actions = self._get_ground_truth(pseudo_game)
         return curr_obs, context, clean_actions
 
     def get_agent_keypoints(self):
@@ -96,21 +100,24 @@ class PseudoDemoGenerator:
         agent_keypoints[3] = torch.tensor(self.agent_key_points['center'], device=self.device)
         return agent_keypoints
     
-    def _run_game(self, biased, augmented):
-        max_retries = 1000
+    def _make_game(self, biased,augmented):
         player_starting_pos =(random.randint(0,SCREEN_WIDTH), random.randint(0,SCREEN_HEIGHT))
-        for attempt in range(max_retries):
-            try: 
-                pseudo_demo = PseudoGame(
+        return PseudoGame(
                     player_starting_pos=player_starting_pos,
                     max_num_sampled_waypoints=self.max_num_waypoints, 
                     min_num_sampled_waypoints=self.min_num_waypoints, 
                     biased=biased, 
                     augmented=augmented
                 )
-                # Store in thread-local storage
-                if not hasattr(self._thread_local, 'agent_key_points'):
-                    self._thread_local.agent_key_points = pseudo_demo.get_player_keypoints()
+
+    def _run_game(self, pseudo_demo):
+        max_retries = 1000
+        player_starting_pos =(random.randint(0,SCREEN_WIDTH), random.randint(0,SCREEN_HEIGHT))
+        for attempt in range(max_retries):
+            try: 
+                # first reset 
+                pseudo_demo.reset_game(shuffle=True) # config stays, but game resets (player, obj change positions)
+
                 pseudo_demo.run()
                 return pseudo_demo
             except Exception as e:
@@ -118,20 +125,19 @@ class PseudoDemoGenerator:
                     raise 
                 continue
 
-    def _get_context(self):
+    def _get_context(self, pseudo_game):
         context = []
         for _ in range(self.num_demos - 1):
-            biased = random.random() < self.biased_odds
-            augmented = self.augmented
-            pseudo_demo = self._run_game(biased=biased, augmented=augmented)
+            pseudo_demo = self._run_game(pseudo_game)
             observations = pseudo_demo.observations
             sample_rate = len(observations) // self.demo_length
             sampled_obs = observations[::sample_rate][:self.demo_length]
             context.append(sampled_obs)
         return context
             
-    def _get_ground_truth(self):
-        pseudo_demo = self._run_game(biased=True, augmented=False)
+    def _get_ground_truth(self, pseudo_game):
+        pseudo_game.set_augmented(False) 
+        pseudo_demo = self._run_game(pseudo_game)
         pd_actions = pseudo_demo.get_actions(mode='se2')
 
         se2_actions = np.array([action[0].flatten() for action in pd_actions]) # n x 9
@@ -308,7 +314,6 @@ class Trainer:
             
 
 
-
 # Usage example:
 if __name__ == "__main__":
     from configs import CONFIGS, version, _type, geo_version
@@ -324,7 +329,7 @@ if __name__ == "__main__":
     grouping_radius = CONFIGS['GROUPING_RADIUS']
     if CONFIGS['TRAIN_GEO_ENCODER']:
         full_train(node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= CONFIGS['GEO_NUM_EPOCHS'], num_samples= CONFIGS['GEO_BATCH_SIZE'])
-        
+
     model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 

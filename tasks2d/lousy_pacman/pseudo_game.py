@@ -5,32 +5,33 @@ import random
 from typing import List
 
 def is_obstacle_blocking(player_pos, goal_center, obst_center, obst_width, obst_height):
-                # Vector from player to goal
-                to_goal = goal_center - player_pos
-                to_goal_normalized = to_goal / np.linalg.norm(to_goal)
-                
-                # Vector from player to obstacle center
-                to_obstacle = obst_center - player_pos
-                
-                # Project obstacle center onto the line from player to goal
-                projection_length = np.dot(to_obstacle, to_goal_normalized)
-                
-                # If projection is negative or beyond goal, obstacle is not in the way
-                if projection_length < 0 or projection_length > np.linalg.norm(to_goal):
-                    return False, None
-                
-                # Find the closest point on the line to the obstacle center
-                closest_point = player_pos + projection_length * to_goal_normalized
-                
-                # Calculate distance from obstacle center to the line
-                distance_to_line = np.linalg.norm(obst_center - closest_point)
-                
-                # Check if obstacle intersects with the path (considering obstacle dimensions)
-                obstacle_radius = max(obst_width, obst_height) / 2
-                if distance_to_line < obstacle_radius:
-                    return True, closest_point
-                
-                return False, None
+    # Vector from player to goal
+    to_goal = goal_center - player_pos
+    to_goal_normalized = to_goal / np.linalg.norm(to_goal)
+    
+    # Vector from player to obstacle center
+    to_obstacle = obst_center - player_pos
+    
+    # Project obstacle center onto the line from player to goal
+    projection_length = np.dot(to_obstacle, to_goal_normalized)
+    
+    # If projection is negative or beyond goal, obstacle is not in the way
+    if projection_length < 0 or projection_length > np.linalg.norm(to_goal):
+        return False, None
+    
+    # Find the closest point on the line to the obstacle center
+    closest_point = player_pos + projection_length * to_goal_normalized
+    
+    # Calculate distance from obstacle center to the line
+    distance_to_line = np.linalg.norm(obst_center - closest_point)
+    
+    # Check if obstacle intersects with the path (considering obstacle dimensions)
+    obstacle_radius = max(obst_width, obst_height) / 2
+    if distance_to_line < obstacle_radius:
+        return True, closest_point
+    
+    return False, None
+
 
 
 
@@ -53,9 +54,8 @@ class PseudoGame:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.screen = np.zeros([self.screen_width, self.screen_height, 3])
-        self.player = PseudoPlayer(player_starting_pos[0], player_starting_pos[1])
         self.t = 0
-
+        self.game_config = None 
         # setup game by creating relevant object
         self.objects = []
         self.num_objects = num_objects
@@ -69,10 +69,15 @@ class PseudoGame:
         self.waypoints = self._sample_waypoints()
         self.observations = []
         self.actions : List[Action] = [] 
-
-        
+    
     # this function does a run of the pseudogame and returns the observations in pointclouds 
     # it will be a list of 'frames' at each timepoints
+    def reset_game(self,shuffle = True):
+        self._populate_pseudo_game()
+
+    def set_augmented(self, _augmented):
+        self.augmented = _augmented
+
     def run(self):
         self.draw()
         obs = self.get_obs()
@@ -91,7 +96,6 @@ class PseudoGame:
     def get_player_keypoints(self, frame = 'self'):
         return self.player.get_keypoints(frame=frame)
 
-
     def get_actions(self, mode = 'object', angle_unit = 'deg'):
         if mode == 'vector':
             return [action.as_vector(mode=angle_unit) for action in self.actions]
@@ -99,7 +103,6 @@ class PseudoGame:
             return [action.to_SE2() for action in self.actions]
 
         return self.actions
-
 
     def get_obs(self):
         agent_pos = self._get_agent_pos()
@@ -198,7 +201,6 @@ class PseudoGame:
         #     self.object.eaten = True 
         return 
     
-
     def draw(self):
         self.screen[:,:] = WHITE
 
@@ -210,7 +212,6 @@ class PseudoGame:
         #      for i in range(-3,3):
         #           for j in range(-3,3):
         #               self.screen[center[0] + i, center[1] + j] = [125,125,125]
-
 
     def _get_agent_pos(self):
         _, front, back_left, back_right = [v for _, v in self.player.get_keypoints(frame = 'self').items()]
@@ -236,14 +237,27 @@ class PseudoGame:
                         [s,  c]])
     
     def _populate_pseudo_game(self):
-        for _ in range(self.num_objects):
-            # generate random starting position and choose a random object
-            start_position_x = np.random.randint(0,self.screen_width) 
-            start_position_y = np.random.randint(0, self.screen_height) 
+        player_starting_pos_x =  np.random.randint(0,self.screen_width) 
+        player_starting_pos_y =  np.random.randint(0,self.screen_height) 
+        self.player = PseudoPlayer(player_starting_pos_x, player_starting_pos_y)
+        if self.game_config is None:
+            self.game_config = {}
+            self.game_config['objects'] = []
+            for _ in range(self.num_objects):
+                # generate random starting position and choose a random object
+                start_position_x = np.random.randint(0,self.screen_width) 
+                start_position_y = np.random.randint(0, self.screen_height) 
+                object_class = random.choice(AVAILABLE_OBJECTS)
+                object = object_class(start_position_x, start_position_y)
+                self.objects.append(object)
+                self.game_config['objects'].append(object_class)
+        else:
+            for object_class in self.game_config['objects']:
+                start_position_x = np.random.randint(0,self.screen_width) 
+                start_position_y = np.random.randint(0, self.screen_height) 
+                object = object_class(start_position_x, start_position_y)
+                self.objects.append(object)
 
-            object_class = random.choice(AVAILABLE_OBJECTS)
-            object = object_class(start_position_x, start_position_y)
-            self.objects.append(object)
 
     def _sample_waypoints(self):
 
@@ -731,7 +745,6 @@ class PseudoGame:
                     augmented_waypoints[i, -1] = PlayerState.EATING.value
         
         return augmented_waypoints
-
    
     def _get_screen_pixels(self):
         return self.screen
