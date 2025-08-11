@@ -330,7 +330,7 @@ if __name__ == "__main__":
     if CONFIGS['TRAIN_GEO_ENCODER']:
         full_train(num_sampled_pc, node_embd_dim, device, grouping_radius, filename=geometry_encoder_filename, num_epochs= CONFIGS['GEO_NUM_EPOCHS'], num_samples= CONFIGS['GEO_BATCH_SIZE'])
 
-    model = GeometryEncoder2D(radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
+    model = GeometryEncoder2D(num_centers=num_sampled_pc,radius=grouping_radius, node_embd_dim=node_embd_dim, device=device).to(device)
     geometry_encoder = initialise_geometry_encoder(model, geometry_encoder_filename,device=device)
 
     # Initialize agent

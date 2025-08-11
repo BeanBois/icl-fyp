@@ -796,7 +796,6 @@ def initialise_geometry_encoder(model : GeometryEncoder2D , pth_filepath : str, 
         print(f"Error loading model: {e}")
         return None
 
-
 def full_train(num_centers, node_embd_dim, device, radius, filename = 'geometry_encoder_2d.pth', num_epochs = 50, num_samples=1000):
     trained_model = train_occupancy_network_multi_object_mini_batch(device, num_centers=num_centers, radius=radius, num_epochs=num_epochs, node_embd_dim=node_embd_dim, num_samples=num_samples)
     if trained_model:
@@ -806,7 +805,6 @@ def full_train(num_centers, node_embd_dim, device, radius, filename = 'geometry_
 # ===========================
 # EXAMPLE USAGE
 # ===========================
-
 if __name__ == "__main__":
     # Example: Create and test geometry encoder
     node_embd_dim = 16  # Match your agent configuration
