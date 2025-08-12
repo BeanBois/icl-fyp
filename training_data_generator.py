@@ -363,5 +363,5 @@ def create_efficient_demo_generator(device='cpu', batch_size=32, **kwargs):
 # curr_obs, context, actions = demo_gen.get_batch_samples(64)
 
 # New way (same API, but faster):
-demo_gen = TensorizedPseudoDemoGenerator(device='cpu', num_demos=5, batch_size=32)
-curr_obs, context, actions = demo_gen.get_batch_samples(batch_size=64)  # Will use tensorized path
+# demo_gen = TensorizedPseudoDemoGenerator(device='cpu', num_demos=5, batch_size=32)
+# curr_obs, context, actions = demo_gen.get_batch_samples(batch_size=64)  # Will use tensorized path
