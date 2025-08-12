@@ -41,7 +41,7 @@ class LocalGraph:
     
     def _init_nodes(self, agent_pos, point_clouds):    
         # init agent nodes
-        AGENT_TAGS = [AgentNodeTag.EDGE1, AgentNodeTag.EDGE2, AgentNodeTag.EDGE3, AgentNodeTag.CENTER]
+        AGENT_TAGS = [AgentNodeTag.CENTER, AgentNodeTag.EDGE1, AgentNodeTag.EDGE2, AgentNodeTag.EDGE3]
 
         agent_nodes = [AgentNode(coord, self.timestep, self.agent_orientation, tag) for (coord, tag) in zip(agent_pos,AGENT_TAGS)]
 
@@ -63,7 +63,6 @@ class LocalGraph:
         edible_nodes = [EdibleNode(info['coord'], self.timestep) for info in edible_pc]
         obstacle_nodes = [ObstacleNode(info['coord'], self.timestep) for info in obstacle_pc]
         goal_nodes = [GoalNode(info['coord'], self.timestep) for info in goal_pc]
-        
 
         # set impt variables
         self.num_nodes = len(agent_nodes) + len(edible_nodes)  + len(obstacle_nodes) + len(goal_nodes) 

@@ -9,6 +9,8 @@ from tasks2d import LousyPacmanPseudoGame as PseudoGame
 from tasks2d import LousyPacmanTensorizedPseudoGame as TensorizedPseudoGame
 from configs import CONFIGS
 
+
+
 class TensorizedPseudoDemoGenerator:
     """
     Tensorized version of PseudoDemoGenerator that maintains the same API
@@ -177,10 +179,18 @@ class TensorizedPseudoDemoGenerator:
         
         observations = []
         for i in range(min(self.demo_length, waypoints.shape[0])):
+            # Create proper agent position (center + 3 triangle points) = (4, 2)
+            player_pos = waypoints[i, :2].unsqueeze(0)  # (1, 2)
+            player_orientation = torch.zeros(1, device=self.device)  # (1,)
+            
+            # Get agent position using tensorized method
+            agent_pos = self.tensorized_game._get_agent_pos_batch(player_pos, player_orientation)
+            agent_pos = agent_pos.squeeze(0)  # Remove batch dimension: (4, 2)
+            
             obs = {
                 'point-clouds': torch.randn(100, 3),  # Placeholder
                 'coords': torch.randn(100, 2),        # Placeholder  
-                'agent-pos': waypoints[i, :2].cpu().numpy(),
+                'agent-pos': agent_pos.cpu().numpy(),  # Now (4, 2) as expected
                 'agent-state': waypoints[i, 2].cpu().numpy(),
                 'agent-orientation': 0.0,  # Placeholder
                 'done': i == waypoints.shape[0] - 1,
@@ -246,12 +256,20 @@ class TensorizedPseudoDemoGenerator:
         return cumulative_actions
     
     def _create_current_observation(self, waypoints: torch.Tensor, batch_idx: int) -> Dict:
-        """Create current observation for a sample."""
-        # This should match your observation format
+        """Create current observation for a sample with proper agent position."""
+        # Create a single player position and orientation for this sample
+        player_pos = waypoints[0, :2].unsqueeze(0)  # (1, 2)
+        player_orientation = torch.zeros(1, device=self.device)  # (1,) - default orientation
+        
+        # Calculate agent position (center + triangle keypoints) using the tensorized method
+        # This requires access to the tensorized game's method
+        agent_pos = self.tensorized_game._get_agent_pos_batch(player_pos, player_orientation)
+        agent_pos = agent_pos.squeeze(0)  # Remove batch dimension: (4, 2)
+        
         return {
             'point-clouds': torch.randn(100, 3),  # Placeholder
             'coords': torch.randn(100, 2),        # Placeholder
-            'agent-pos': waypoints[0, :2].cpu().numpy(),
+            'agent-pos': agent_pos.cpu().numpy(),  # Now (4, 2) as expected
             'agent-state': waypoints[0, 2].cpu().numpy(), 
             'agent-orientation': 0.0,  # Placeholder
             'done': False,
@@ -278,7 +296,11 @@ class TensorizedPseudoDemoGenerator:
     
     def _make_game(self, biased, augmented):
         """Original method preserved."""
-        player_starting_pos = (random.randint(0, SCREEN_WIDTH), random.randint(0, SCREEN_HEIGHT))
+        # Get screen dimensions from configs or use defaults
+        screen_width = CONFIGS.get('SCREEN_WIDTH', 800)
+        screen_height = CONFIGS.get('SCREEN_HEIGHT', 600)
+        
+        player_starting_pos = (random.randint(0, screen_width), random.randint(0, screen_height))
         return PseudoGame(
             player_starting_pos=player_starting_pos,
             max_num_sampled_waypoints=self.max_num_waypoints, 
@@ -363,5 +385,5 @@ def create_efficient_demo_generator(device='cpu', batch_size=32, **kwargs):
 # curr_obs, context, actions = demo_gen.get_batch_samples(64)
 
 # New way (same API, but faster):
-# demo_gen = TensorizedPseudoDemoGenerator(device='cpu', num_demos=5, batch_size=32)
-# curr_obs, context, actions = demo_gen.get_batch_samples(batch_size=64)  # Will use tensorized path
+# demo_gen = TensorizedPseudoDemoGenerator(device='cuda', num_demos=5, batch_size=32)
+# curr_obs, context, actions = demo_gen.get_batch_samples(64)  # Will use tensorized path

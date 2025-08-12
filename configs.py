@@ -6,10 +6,10 @@ from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = '4.1'
+version = '4_1'
 # action_mode = 'small' #| 'large'
 action_mode = 'large'
-geo_version = '3'
+geo_version = '2'
 
 SAMPLING_RATE = 10 # Vibes, the down sampling shouldnt exceeed 10 frames 
 
@@ -18,7 +18,7 @@ CONFIGS = {
     # GEO ENCODER TRAINING CONFIGS
     'GEO_NUM_EPOCHS' : 200,
     'GEO_BATCH_SIZE' : 5000,
-    'TRAIN_GEO_ENCODER' : True,
+    'TRAIN_GEO_ENCODER' : False,
     'NUM_SAMPLED_POINTCLOUDS' : 8,
     'GROUPING_RADIUS' : 30,
 

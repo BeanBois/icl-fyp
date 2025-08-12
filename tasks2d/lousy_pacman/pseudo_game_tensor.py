@@ -4,6 +4,9 @@ import math
 import random
 from typing import List, Tuple, Optional
 from .pseudo_game_aux import *
+from .pseudo_game import PseudoGame
+
+
 
 def batch_obstacle_blocking(player_pos: torch.Tensor, goal_center: torch.Tensor, 
                           obst_center: torch.Tensor, obst_width: torch.Tensor, 
@@ -143,6 +146,7 @@ def batch_interpolate_waypoints(waypoints: torch.Tensor, target_num_waypoints: i
     return torch.stack(all_interpolated)
 
 class TensorizedPseudoGame:
+    agent_keypoints = PseudoGame.agent_keypoints
     """Tensorized version of PseudoGame for efficient batch processing."""
     
     def __init__(self, batch_size: int = 32, device: str = 'cpu', **kwargs):
@@ -374,13 +378,65 @@ class TensorizedPseudoGame:
         
         return batch_actions
     
+    def _get_agent_pos_batch(self, player_positions: torch.Tensor, player_orientations: torch.Tensor) -> torch.Tensor:
+        """
+        Batch version of _get_agent_pos that creates triangle keypoints for each player.
+        
+        Args:
+            player_positions: (batch_size, 2) - player center positions
+            player_orientations: (batch_size,) - player orientations in degrees
+            
+        Returns:
+            agent_pos_batch: (batch_size, 4, 2) - center + 3 triangle points for each player
+        """
+        batch_size = player_positions.shape[0]
+        device = player_positions.device
+        
+        # Get triangle keypoints relative to player (same as PseudoPlayer.get_keypoints)
+        # These are the relative positions when orientation = 0
+        front = torch.tensor([0., -10.], device=device)  # Front point
+        back_left = torch.tensor([-8., 6.], device=device)  # Back left
+        back_right = torch.tensor([8., 6.], device=device)  # Back right
+        
+        # Stack triangle points: (3, 2)
+        tri_points = torch.stack([front, back_left, back_right], dim=0)
+        
+        # Create rotation matrices for each player: (batch_size, 2, 2)
+        R_batch = batch_rotation_matrix_2d(player_orientations)
+        
+        # Rotate triangle points for each player
+        # tri_points: (3, 2) -> (1, 3, 2) -> (batch_size, 3, 2)
+        tri_points_expanded = tri_points.unsqueeze(0).expand(batch_size, -1, -1)
+        
+        # Apply rotation: (batch_size, 2, 2) @ (batch_size, 3, 2).transpose(-1, -2) -> (batch_size, 2, 3)
+        rotated = torch.bmm(R_batch, tri_points_expanded.transpose(-1, -2))
+        # Transpose back: (batch_size, 2, 3) -> (batch_size, 3, 2)
+        rotated = rotated.transpose(-1, -2)
+        
+        # Add center position to get final triangle points
+        # player_positions: (batch_size, 2) -> (batch_size, 1, 2)
+        # rotated: (batch_size, 3, 2)
+        final_triangle_points = rotated + player_positions.unsqueeze(1)
+        
+        # Combine center and triangle points: (batch_size, 4, 2)
+        # player_positions: (batch_size, 2) -> (batch_size, 1, 2)
+        center_expanded = player_positions.unsqueeze(1)
+        agent_pos_batch = torch.cat([center_expanded, final_triangle_points], dim=1)
+        
+        return agent_pos_batch
+
     def _generate_observations_batch(self, batch_configs: dict, batch_waypoints: torch.Tensor) -> dict:
-        """Generate observations for the batch (simplified version)."""
+        """Generate observations for the batch with proper agent positions."""
         batch_size = batch_configs['player_positions'].shape[0]
         
-        # Create simplified observations
+        # Calculate proper agent positions (center + triangle keypoints)
+        agent_positions_batch = self._get_agent_pos_batch(
+            batch_configs['player_positions'], 
+            batch_configs['player_orientations']
+        )
+        # Create observations
         observations = {
-            'agent_positions': batch_configs['player_positions'],
+            'agent_positions': agent_positions_batch,  # (batch_size, 4, 2)
             'agent_orientations': batch_configs['player_orientations'],
             'object_positions': batch_configs['object_positions'],
             'object_types': batch_configs['object_types'],
