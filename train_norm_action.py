@@ -1,5 +1,5 @@
 # import game
-from configs import SCREEN_HEIGHT, SCREEN_WIDTH, PseudoGame, action_mode
+from configs import PSEUDO_SCREEN_HEIGHT, PSEUDO_SCREEN_WIDTH, PseudoGame, action_mode
 
 # import agent
 from agent_files import InstantPolicyAgent
@@ -17,7 +17,7 @@ from training_data_generator import TensorizedPseudoDemoGenerator
 # move these constants to CONFIG FILES 
 
 # import game
-from configs import SCREEN_HEIGHT, SCREEN_WIDTH, PseudoGame, action_mode
+from configs import PSEUDO_SCREEN_HEIGHT, PSEUDO_SCREEN_WIDTH, PseudoGame, action_mode
 
 # import agent
 from agent_files import InstantPolicyAgentNormAction as InstantPolicyAgent
@@ -272,6 +272,7 @@ if __name__ == "__main__":
         head_dim=CONFIGS['HEAD_DIM'],
         agent_state_embd_dim=CONFIGS['AGENT_STATE_EMB_DIM'],
         edge_pos_dim=CONFIGS['EDGE_POS_DIM'],
+
         # Add normalization parameters
         max_flow_translation=CONFIGS['PIXEL_PER_STEP'] * 2,  # 2cm = twice the 1cm max displacement
         max_flow_rotation=CONFIGS['DEGREE_PER_TURN'] * 2      # 6 degrees = twice the 3 degree max displacement

@@ -117,6 +117,7 @@ class InstantPolicyAgent(nn.Module):
         action_noise_normalized = self._normalize_target_noise(action_noise, action_mode)
 
         return predicted_per_node_noise, action_noise_normalized
+    
 
     def _clamp_actions(self, actions, mode):
         """

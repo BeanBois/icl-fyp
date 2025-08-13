@@ -7,7 +7,8 @@ import threading
 
 from tasks2d import LousyPacmanPseudoGame as PseudoGame 
 from tasks2d import LousyPacmanTensorizedPseudoGame as TensorizedPseudoGame
-from configs import CONFIGS
+from configs import PSEUDO_SCREEN_HEIGHT, PSEUDO_SCREEN_WIDTH
+
 
 
 
@@ -26,8 +27,6 @@ class TensorizedPseudoDemoGenerator:
         self.agent_key_points = PseudoGame.agent_keypoints
         self.translation_scale = 500
         self.demo_length = demo_length
-        self.max_translation = CONFIGS['TRAINING_MAX_TRANSLATION']
-        self.max_rotation = np.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
         self.player_speed = 5 
         self.player_rot_speed = 5
         self.num_threads = num_threads
@@ -297,10 +296,10 @@ class TensorizedPseudoDemoGenerator:
     def _make_game(self, biased, augmented):
         """Original method preserved."""
         # Get screen dimensions from configs or use defaults
-        screen_width = CONFIGS.get('SCREEN_WIDTH', 800)
-        screen_height = CONFIGS.get('SCREEN_HEIGHT', 600)
-        
+        screen_width = PSEUDO_SCREEN_WIDTH
+        screen_height = PSEUDO_SCREEN_HEIGHT
         player_starting_pos = (random.randint(0, screen_width), random.randint(0, screen_height))
+
         return PseudoGame(
             player_starting_pos=player_starting_pos,
             max_num_sampled_waypoints=self.max_num_waypoints, 

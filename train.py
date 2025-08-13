@@ -1,5 +1,5 @@
 # import game
-from configs import SCREEN_HEIGHT, SCREEN_WIDTH, PseudoGame, action_mode
+from configs import PSEUDO_SCREEN_HEIGHT, PSEUDO_SCREEN_WIDTH, PseudoGame, action_mode
 
 # import agent
 from agent_files import InstantPolicyAgent
@@ -94,7 +94,7 @@ class PseudoDemoGenerator:
         return agent_keypoints
     
     def _make_game(self, biased,augmented):
-        player_starting_pos =(random.randint(0,SCREEN_WIDTH), random.randint(0,SCREEN_HEIGHT))
+        player_starting_pos =(random.randint(0,PSEUDO_SCREEN_WIDTH), random.randint(0,PSEUDO_SCREEN_HEIGHT))
         return PseudoGame(
                     player_starting_pos=player_starting_pos,
                     max_num_sampled_waypoints=self.max_num_waypoints, 
@@ -105,7 +105,7 @@ class PseudoDemoGenerator:
 
     def _run_game(self, pseudo_demo):
         max_retries = 1000
-        player_starting_pos =(random.randint(0,SCREEN_WIDTH), random.randint(0,SCREEN_HEIGHT))
+        player_starting_pos =(random.randint(0,PSEUDO_SCREEN_WIDTH), random.randint(0,PSEUDO_SCREEN_HEIGHT))
         for attempt in range(max_retries):
             try: 
                 # first reset 

@@ -1,5 +1,5 @@
-from tasks2d import LousyPacmanPseudoScreenHeight as SCREEN_HEIGHT
-from tasks2d import LousyPacmanPseudoScreenWidth as SCREEN_WIDTH
+from tasks2d import LousyPacmanPseudoScreenHeight as PSEUDO_SCREEN_HEIGHT
+from tasks2d import LousyPacmanPseudoScreenWidth as PSEUDO_SCREEN_WIDTH
 from tasks2d import LousyPacmanPseudoGame as  PseudoGame
 from tasks2d import LousyPacmanPseudoMaxForwDist as  PSEUDO_MAX_TRANSLATION
 from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
