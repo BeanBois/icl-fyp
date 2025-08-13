@@ -3,6 +3,8 @@ import torch.nn as nn
 from .instant_policy import InstantPolicy 
 import numpy as np
 
+
+# TODO : might need to fix how actions are being clamped so cooked lol
 class InstantPolicyAgent(nn.Module):
 
     def __init__(self,
@@ -71,6 +73,8 @@ class InstantPolicyAgent(nn.Module):
             nn.Sigmoid(),  # Output in [0, 1] range for binary gripper actions
         )
     
+    # idk what i am doing here 
+    # but in the code they kinda just make se2 actions to [xt, yt, theta] 
     def forward(self,
                 curr_obs,
                 context,

@@ -63,7 +63,8 @@ CONFIGS = {
     'TESTING_MAX_UNIT_ROTATION' : SAMPLING_RATE * PSEUDO_MAX_ROTATION,
     'STATE_CHANGE_ODDS': (0.5, 0.5),
     'FIG_FILENAME' : f'avg_loss_ip_{_type}_v{version}',
-    
+    'MANUAL_DEMO_COLLECT' : True,
+    'TEST_SAMPLING_RATE' : 5,
 
 }
 

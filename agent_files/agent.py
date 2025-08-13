@@ -23,7 +23,6 @@ class InstantPolicyAgent(nn.Module):
                 ):
         super(InstantPolicyAgent, self).__init__()
 
-        
         self.policy = InstantPolicy(
                 geometry_encoder=geometry_encoder,
                 device=device, 

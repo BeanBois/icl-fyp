@@ -1,10 +1,13 @@
-from .game import Game, GameMode
+from .game import Game, GameMode, Player
 import numpy as np
 import os 
 from .game_configs import NUM_OF_EDIBLE_OBJECT, NUM_OF_OBSTACLES, BLACK, YELLOW, RED, GREEN
 from collections import defaultdict
 
 class GameInterface:
+
+    agent_keypoints = Player(100,100).get_keypoints(frame='self')
+
 
     def __init__(self,num_edibles = NUM_OF_EDIBLE_OBJECT, num_obstacles = NUM_OF_OBSTACLES, num_sampled_points = 10, mode = GameMode.DEMO_MODE):
         # dont run headless
