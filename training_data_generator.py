@@ -522,7 +522,7 @@ class PseudoDemoGenerator:
         sample_rate = min(actions.shape[0] // self.demo_length,1)
         assert temp == actions.shape
         actions = self._downsample_actions(actions)
-        true_obs = pseudo_demo.observations[::sample_rate][:self.demo_length]
+        true_obs = self._downsample_obs(pseudo_demo.observations)
 
 
         return true_obs[0], actions
