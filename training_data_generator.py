@@ -15,7 +15,7 @@ from configs import PSEUDO_SCREEN_HEIGHT, PSEUDO_SCREEN_WIDTH
 
 
 
-
+# unused for now
 class TensorizedPseudoDemoGenerator:
     """
     Tensorized version of PseudoDemoGenerator that maintains the same API
@@ -396,7 +396,7 @@ def create_efficient_demo_generator(device='cpu', batch_size=32, **kwargs):
         **kwargs
     )
 
-# unused for now
+
 class PseudoDemoGenerator:
 
     def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
@@ -499,8 +499,7 @@ class PseudoDemoGenerator:
         for _ in range(self.num_demos - 1):
             pseudo_demo = self._run_game(pseudo_game)
             observations = pseudo_demo.observations
-            sample_rate = min(len(observations) // self.demo_length,1)
-            sampled_obs = observations[::sample_rate][:self.demo_length]
+            sampled_obs = self._downsample_obs(observations)
             context.append(sampled_obs)
         return context
             
@@ -522,7 +521,7 @@ class PseudoDemoGenerator:
         actions = self._accumulate_actions(actions)
         sample_rate = min(actions.shape[0] // self.demo_length,1)
         assert temp == actions.shape
-        actions = actions[::sample_rate][:self.demo_length]
+        actions = self._downsample_actions(actions)
         true_obs = pseudo_demo.observations[::sample_rate][:self.demo_length]
 
 
@@ -548,8 +547,41 @@ class PseudoDemoGenerator:
         
         return cumulative_actions
 
-    def _process_demos(self):
-        return    
+    def _downsample_actions(self,actions):
+        if actions.shape < self.demo_length:
+            return actions
+        result = torch.zeros((10, actions.shape[1]), device = actions.device)
+        result[0] = [actions[0]]
+        total_middle_positions = actions.shape[0] - 2  # Exclude first and last
+        
+        for i in range(1, self.demo_length - 1):
+            # Calculate the position in the middle section (0 to total_middle_positions-1)
+            middle_pos = (i - 1) * total_middle_positions / (self.demo_length - 3) if self.demo_length > 3 else total_middle_positions // 2
+            # Convert to actual index (add 1 to skip first item)
+            actual_index = int(round(middle_pos)) + 1
+            result[i] = actions[actual_index]
+        
+        result.append(actions[-1])  # Always include last item
+        
+        return result
+    
+    def _downsample_obs(self, observations):
+        if len(observations) < self.demo_length:
+            return observations
+
+        result = [observations[0]]
+        total_middle_positions = len(observations) - 2  # Exclude first and last
+        
+        for i in range(1, self.demo_length - 1):
+            # Calculate the position in the middle section (0 to total_middle_positions-1)
+            middle_pos = (i - 1) * total_middle_positions / (self.demo_length - 3) if self.demo_length > 3 else total_middle_positions // 2
+            # Convert to actual index (add 1 to skip first item)
+            actual_index = int(round(middle_pos)) + 1
+            result.append(observations[actual_index])
+        
+        result.append(observations[-1])  # Always include last item
+        
+        return result
 
 # Example usage:
 # Old way:
