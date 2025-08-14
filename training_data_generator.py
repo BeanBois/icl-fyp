@@ -205,37 +205,51 @@ class TensorizedPseudoDemoGenerator:
     
     def _process_actions_tensor(self, actions: torch.Tensor) -> torch.Tensor:
         """Process actions to match the expected SE2 + state format."""
-        
-        # Convert actions to SE2 format (simplified)
         num_actions = min(self.demo_length, actions.shape[0])
         processed_actions = torch.zeros(num_actions, 10, device=self.device)  # 9 for SE2 + 1 for state
         
+        # Keep track of cumulative orientation for proper SE(2) conversion
+        current_orientation = 0.0  # Starting orientation in degrees
+        
         for i in range(num_actions):
-            # Create SE2 matrix from forward movement and rotation
-            forward_movement = actions[i, 0]
-            rotation = actions[i, 1] 
-            state = actions[i, 2]
+            forward_movement = actions[i, 0]    # Distance magnitude
+            rotation_deg = actions[i, 1]        # Rotation angle in degrees  
+            state = actions[i, 2]               # State change
             
-            # Simplified SE2 matrix creation
-            se2_matrix = torch.eye(3, device=self.device)
-            se2_matrix[0, 2] = forward_movement  # x translation
-            se2_matrix[1, 2] = 0  # y translation (simplified)
+            # Update orientation: new orientation after this rotation
+            current_orientation += rotation_deg
             
-            # Add rotation (simplified)
-            cos_r = torch.cos(rotation * torch.pi / 180)
-            sin_r = torch.sin(rotation * torch.pi / 180)
-            se2_matrix[0, 0] = cos_r
-            se2_matrix[0, 1] = -sin_r
-            se2_matrix[1, 0] = sin_r
-            se2_matrix[1, 1] = cos_r
+            # Convert to radians for trigonometry
+            total_orientation_rad = current_orientation * torch.pi / 180.0
+            rotation_rad = rotation_deg * torch.pi / 180.0
+            
+            # Option B: Forward movement is in the direction of FINAL orientation
+            # Decompose forward movement into x,y components
+            x_translation = forward_movement * torch.cos(total_orientation_rad)
+            y_translation = forward_movement * torch.sin(total_orientation_rad)
+            
+            # Create SE(2) matrix for this action
+            # This represents the transformation: rotate THEN translate
+            cos_r = torch.cos(rotation_rad)
+            sin_r = torch.sin(rotation_rad)
+            
+            se2_matrix = torch.zeros(3, 3, device=self.device)
+            se2_matrix[0, 0] = cos_r      # Rotation component
+            se2_matrix[0, 1] = -sin_r     # Rotation component
+            se2_matrix[1, 0] = sin_r      # Rotation component  
+            se2_matrix[1, 1] = cos_r      # Rotation component
+            se2_matrix[0, 2] = x_translation  # x translation in world frame
+            se2_matrix[1, 2] = y_translation  # y translation in world frame
+            se2_matrix[2, 2] = 1.0        # Homogeneous coordinate
             
             processed_actions[i, :9] = se2_matrix.flatten()
             processed_actions[i, 9] = state
         
-        # Apply accumulation
+        # Apply accumulation to get cumulative transformations
         processed_actions = self._accumulate_actions_tensor(processed_actions)
         
         return processed_actions
+
     
     def _accumulate_actions_tensor(self, actions: torch.Tensor) -> torch.Tensor:
         """Tensorized version of action accumulation."""

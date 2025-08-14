@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
-from training_data_generator import TensorizedPseudoDemoGenerator
+# from training_data_generator import TensorizedPseudoDemoGenerator
+from training_data_generator import PseudoDemoGenerator
+
 from agent_files import InstantPolicyAgent
 
 class Trainer: 
@@ -11,13 +13,13 @@ class Trainer:
         self.agent = agent
         self.device = device 
         
-        self.data_generator = TensorizedPseudoDemoGenerator(
+        self.data_generator = PseudoDemoGenerator(
             device=device,
             num_demos=num_demos_for_context + 1, 
             min_num_waypoints=min_num_waypoints,
             max_num_waypoints=max_num_waypoints,
             demo_length=demo_length,
-            batch_size=batch_size,
+            # batch_size=batch_size,
         )
         
         self.batch_size = batch_size
@@ -86,7 +88,7 @@ class Trainer:
         device = action_noise.device
         
         # Split action noise into SE(2) and state components
-        se2_noise = action_noise[:, :-1].view(T, 9)  # [T, 9]
+        se2_noise = action_noise[:, :-1].view(T, 3,3)  # [T, 9]
         state_noise = action_noise[:, -1:]  # [T, 1]
         per_node_directions = torch.zeros(T, 4, 5, device=device)
         
