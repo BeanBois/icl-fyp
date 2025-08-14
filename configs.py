@@ -6,6 +6,7 @@ from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
+
 version = '4_2'
 # action_mode = 'small' #| 'large'
 action_mode = 'large'
