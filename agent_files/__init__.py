@@ -1,3 +1,2 @@
 from .agent import InstantPolicyAgent
 from .geometry_encoder import GeometryEncoder2D, full_train, initialise_geometry_encoder
-from .agent_norm_action import InstantPolicyAgent as InstantPolicyAgentNormAction

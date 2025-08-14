@@ -1,11 +1,11 @@
-
 import torch
 import torch.nn as nn 
 from .instant_policy import InstantPolicy 
 import numpy as np
-# main agent file
-# the noise addition process is done in SE2 space
-# 
+
+# TODO : standardise action mode to large
+
+# TODO : might need to fix how actions are being clamped so cooked lol
 class InstantPolicyAgent(nn.Module):
 
     def __init__(self,
@@ -13,16 +13,20 @@ class InstantPolicyAgent(nn.Module):
                 max_translation,
                 max_rotation,
                 geometry_encoder,
+                # New parameters for output normalization
+                max_flow_translation = 100,  # 100px = twice the 10px max displacement PSEUDO_MAX_TRANLSATION
+                max_flow_rotation = 36,     # 36 deg = twice the 5 degree max displacement PSEUDO_MAX_ROTATION
                 num_diffusion_steps = 100,
                 num_agent_nodes = 4, 
                 pred_horizon = 5, 
                 num_att_heads = 16,
                 head_dim = 64,
                 agent_state_embd_dim = 64,
-                edge_pos_dim = 2
+                edge_pos_dim = 2,
                 ):
         super(InstantPolicyAgent, self).__init__()
 
+        
         self.policy = InstantPolicy(
                 geometry_encoder=geometry_encoder,
                 device=device, 
@@ -33,8 +37,11 @@ class InstantPolicyAgent(nn.Module):
                 agent_state_embd_dim=agent_state_embd_dim,
                 edge_pos_dim=edge_pos_dim
                 )
+        
+        # unused params for now 
         self.max_translation = max_translation
         self.max_rotation = torch.deg2rad(torch.tensor([max_rotation], device=device))
+
         self.device = device 
         self.num_diffusion_steps = num_diffusion_steps
         self.beta_schedule = self._linear_beta_schedule(0.0001, 0.02, self.num_diffusion_steps)
@@ -43,103 +50,115 @@ class InstantPolicyAgent(nn.Module):
         self.hidden_dim = num_att_heads * head_dim
         self.node_embd_dim = num_att_heads * head_dim
 
+        # Output normalization parameters
+        self.max_flow_translation = max_flow_translation  # cm
+        self.max_flow_rotation = torch.deg2rad(torch.tensor([max_flow_rotation], device=device))  # radians
+
+
         self.pred_head_p = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim, device=self.device),
             nn.GELU(),
             nn.Linear(self.node_embd_dim,2, device=self.device),
+            nn.Tanh()  # Output in [-1, 1] range
         )
         
         self.pred_head_rot = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim, device=self.device),
             nn.GELU(),
             nn.Linear(self.node_embd_dim, 2, device=self.device),
+            nn.Tanh()  # Output in [-1, 1] range
         )
         
         self.pred_head_g = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim,device=self.device),
             nn.GELU(),
             nn.Linear(self.node_embd_dim,1,device=self.device),
-            nn.ReLU(),
+            nn.Tanh(),  # Output in [-1, 1] range for binary gripper actions
         )
     
-    # should predict per-node denoising direction
+    # idk what i am doing here 
+    # but in the code they kinda just make se2 actions to [xt, yt, theta] 
+
     def forward(self,
-                curr_obs,
-                context,
-                clean_actions,
-                action_mode): # [T * 10], T is the demo length 
-        # need to use clean actions to generate noisy actions 
+                   curr_obs,
+                   context,
+                   clean_actions):
         batch_size = len(clean_actions)
         timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
-        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps, mode=action_mode) # noisy action shape is [T * 10]
-
-        assert noisy_actions.shape == clean_actions.shape 
-        assert action_noise.shape == clean_actions.shape 
-
-        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device) # T x self.num_agent_nodes = 4 x self.node_emb_dim = 1024
-        T, num_nodes, hidden_dim = node_embs.shape
-        flat_node_embs = node_embs.view(T * num_nodes, hidden_dim)  # [T*4, 1024]
-
-        # Predict noise components
-        flat_translation_noise = self.pred_head_p(flat_node_embs).to(self.device)    # [T * 4, 2]
-        flat_rotation_noise = self.pred_head_rot(flat_node_embs).to(self.device)    # [T * 4, 1] 
-        flat_gripper_noise = self.pred_head_g(flat_node_embs).to(self.device)    # [T * 4, 1]
         
+        # get noisy action
+        noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps)
 
-        per_node_translation = flat_translation_noise.view(T, num_nodes, 2)  # [T, 4, 2]
-        per_node_rotation = flat_rotation_noise.view(T, num_nodes, 2)        # [T, 4, 2]  
-        per_node_total_translation = per_node_translation + per_node_rotation # [T, 4, 2]
+        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device)
+        T, num_nodes, hidden_dim = node_embs.shape
+        flat_node_embs = node_embs.view(T * num_nodes, hidden_dim)
 
-        per_node_gripper = flat_gripper_noise.view(T, num_nodes, 1)          # [T, 4, 1]
+        # Predict normalized noise components (outputs are already in [-1,1] due to Tanh/Sigmoid)
+        flat_translation_noise_norm = self.pred_head_p(flat_node_embs).to(self.device)    # [-1, 1] 
+        flat_rotation_noise_norm = self.pred_head_rot(flat_node_embs).to(self.device)     # [-1, 1] 
+        flat_gripper_noise_norm = self.pred_head_g(flat_node_embs).to(self.device)       # [-1, 1]
 
-        # get action noise
-        predicted_per_node_noise =torch.cat([per_node_translation, per_node_rotation, per_node_gripper],dim = -1) # [4, 3]
+        # Denormalize the predictions to actual noise scale
+        flat_translation_noise = self._denormalize_translation_noise(flat_translation_noise_norm)
+        flat_rotation_noise = self._denormalize_rotation_noise(flat_rotation_noise_norm)
+        flat_gripper_noise = self._denormalize_gripper_noise(flat_gripper_noise_norm)
+        
+        per_node_translation = flat_translation_noise.view(T, num_nodes, 2)
+        per_node_rotation = flat_rotation_noise.view(T, num_nodes, 2)        
+        per_node_gripper = flat_gripper_noise.view(T, num_nodes, 1)
 
+        # Combine predicted noise
+        predicted_per_node_noise = torch.cat([per_node_translation, per_node_rotation, per_node_gripper], dim=-1)
+    
+        # we can choose to normalise both action noise and predicted_per_node_noise but for now no need
+        # predicted_per_node_noise in range {self.max_flow ... } and action_noise in range {self.max_trans} 
+        # we essentially limit our denoising power for a more contorlled denoising process
         return predicted_per_node_noise, action_noise
     
-    def _solve_se2_alignment(self, source_points, target_points): # unused
-        """
-        Solve for SE(2) transformation that best aligns source to target points
-        This is the 2D equivalent of SVD alignment in the paper
+    def predict(self,
+            curr_obs,
+            context,
+            noisy_actions):
+        batch_size = len(noisy_actions)
+        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device)
+        T, num_nodes, hidden_dim = node_embs.shape
+        flat_node_embs = node_embs.view(T * num_nodes, hidden_dim)
+
+        # Predict normalized noise components (outputs are already in [-1,1] due to Tanh/Sigmoid)
+        flat_translation_noise_norm = self.pred_head_p(flat_node_embs).to(self.device)    # [-1, 1] 
+        flat_rotation_noise_norm = self.pred_head_rot(flat_node_embs).to(self.device)     # [-1, 1] 
+        flat_gripper_noise_norm = self.pred_head_g(flat_node_embs).to(self.device)       # [-1, 1]
+
+        # Denormalize the predictions to actual noise scale
+        flat_translation_noise = self._denormalize_translation_noise(flat_translation_noise_norm)
+        flat_rotation_noise = self._denormalize_rotation_noise(flat_rotation_noise_norm)
+        flat_gripper_noise = self._denormalize_gripper_noise(flat_gripper_noise_norm)
         
-        Args:
-            source_points: [4, 2] - original keypoint positions
-            target_points: [4, 2] - displaced keypoint positions
-            
-        Returns:
-            transform: [3, 3] - SE(2) transformation matrix
-        """
-        # Center the point sets
-        source_centroid = source_points.mean(dim=0)  # [2]
-        target_centroid = target_points.mean(dim=0)  # [2]
-        
-        source_centered = source_points - source_centroid  # [4, 2]
-        target_centered = target_points - target_centroid  # [4, 2]
-        
-        # Compute cross-covariance matrix H = sum(source_i @ target_i^T)
-        H = torch.mm(source_centered.T, target_centered)  # [2, 2]
-        
-        # SVD decomposition
-        U, S, V = torch.svd(H)
-        
-        # Compute rotation matrix
-        R = torch.mm(V, U.T)  # [2, 2]
-        
-        # Handle reflection case (ensure proper rotation)
-        if torch.det(R) < 0:
-            V[:, -1] *= -1
-            R = torch.mm(V, U.T)
-        
-        # Compute translation
-        t = target_centroid - torch.mv(R, source_centroid)  # [2]
-        
-        # Construct SE(2) matrix
-        transform = torch.eye(3, device=self.device)
-        transform[:2, :2] = R
-        transform[:2, 2] = t
-        
-        return transform
+        per_node_translation = flat_translation_noise.view(T, num_nodes, 2)
+        per_node_rotation = flat_rotation_noise.view(T, num_nodes, 2)        
+        per_node_gripper = flat_gripper_noise.view(T, num_nodes, 1)
+
+        # Combine predicted noise
+        predicted_per_node_noise = torch.cat([per_node_translation, per_node_rotation, per_node_gripper], dim=-1)
     
+        # we can choose to normalise both action noise and predicted_per_node_noise but for now no need
+        # predicted_per_node_noise in range {self.max_flow ... } and action_noise in range {self.max_trans} 
+        # we essentially limit our denoising power for a more contorlled denoising process
+        return predicted_per_node_noise
+
+    def _denormalize_translation_noise(self, normalized_noise):
+        """Convert normalized translation noise [-1,1] to actual scale"""
+        return normalized_noise * self.max_flow_translation
+
+    def _denormalize_rotation_noise(self, normalized_noise):
+        """Convert normalized rotation noise [-1,1] to actual scale"""  
+        return normalized_noise * self.max_flow_rotation
+
+    def _denormalize_gripper_noise(self, normalized_noise):
+        """Convert normalized gripper noise [0,1] to actual scale"""
+        # For binary gripper, we can keep it in [0,1] or scale as needed
+        return normalized_noise * 2.0 - 1.0  # Convert [0,1] to [-1,1] if needed
+
     def _linear_beta_schedule(self, beta_start, beta_end, timesteps):
         """Create linear noise schedule"""
         return torch.linspace(beta_start, beta_end, timesteps, device = self.device)
@@ -257,95 +276,15 @@ class InstantPolicyAgent(nn.Module):
         
         return T
 
-
-# fix here
-    def _get_noisy_actions(self, clean_actions, timesteps, mode = 'large'):
+    def _get_noisy_actions(self, clean_actions, timesteps):
         """
         Choose mode based on displacement magnitude
         """
-        if mode == 'large':
-            return self._get_noisy_actions_large(clean_actions, timesteps)
-        else:
-            return self._get_noisy_actions_small(clean_actions, timesteps)
+        # if mode == 'large':
+            # return self._get_noisy_actions_large(clean_actions, timesteps)
+        # else:
+        return self._get_noisy_actions_small(clean_actions, timesteps)
         
-    def _get_noisy_actions_large(self, clean_actions, timesteps):
-        """
-        Large displacement: Add noise directly in SE(2) space with proper projection
-        """
-        binary_actions = clean_actions[..., -1]
-        SE2_clean_flat = clean_actions[..., :-1]
-        SE2_clean = SE2_clean_flat.view(-1,3,3)
-        
-        # Sample noise in se(2) tangent space (this is key!)
-        batch_size = SE2_clean.shape[0]
-        se2_noise = torch.randn(batch_size, 3, device=self.device)  # [ρx, ρy, θ]
-        
-        # TODO : ACTIONS SCALING HERE 
-        # Scale noise for large displacements
-        se2_noise[..., :2] *= 10  # Large translation noise (10px)
-        se2_noise[..., 2] *= 0.5   # Large rotation noise (≈30°)
-        
-        # Convert noise to SE(2) matrices using matrix exponential
-        SE2_noise = self._se2_to_SE2(se2_noise)  # [batch, 3, 3]
-        
-        # Apply diffusion schedule
-        alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
-        
-        # For SE(2), we compose transformations: T_noisy = T_clean @ exp(√(1-α) * ξ)
-        # Simplified as: T_noisy = √α * T_clean + √(1-α) * T_noise_scaled
-        sqrt_alpha = torch.sqrt(alpha_cumprod_t)
-        sqrt_one_minus_alpha = torch.sqrt(1 - alpha_cumprod_t)
-        
-        # Scale the noise transformation
-        SE2_noise_scaled = torch.eye(3, device=self.device).unsqueeze(0) + sqrt_one_minus_alpha * (SE2_noise - torch.eye(3, device=self.device).unsqueeze(0))
-        
-        # Compose transformations (this is the proper SE(2) way)
-        SE2_noisy = sqrt_alpha * SE2_clean + sqrt_one_minus_alpha * SE2_noise
-        
-        # Project back to SE(2) manifold (ensure rotation matrix constraints)
-        SE2_noisy = self._project_to_SE2_manifold(SE2_noisy)
-        SE2_noisy_flat = SE2_noisy.view(-1, 9)
-        
-        # Handle binary actions
-        binary_noise = torch.randn_like(binary_actions)
-        alpha_cumprod_binary = self.alpha_cumprod[timesteps].view(-1,)
-        noisy_binary = torch.sqrt(alpha_cumprod_binary) * binary_actions + torch.sqrt(1 - alpha_cumprod_binary) * binary_noise
-        
-        # Combine results
-        noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary.view(-1,1)], dim=-1)
-        
-        # The noise is the difference in action space (for training target)
-        moving_noise = SE2_noisy_flat - SE2_clean_flat
-        full_noise = torch.cat([moving_noise, binary_noise.view(-1,1)], dim=-1)
-        
-        return noisy_actions, full_noise
-
-    def _project_to_SE2_manifold(self, SE2_matrices):
-        """
-        Project matrices back to valid SE(2) manifold
-        """
-        batch_size = SE2_matrices.shape[0]
-        projected = torch.zeros_like(SE2_matrices)
-        
-        # Extract rotation part and re-orthogonalize using SVD
-        R = SE2_matrices[..., :2, :2]  # [batch, 2, 2]
-        U, S, V = torch.svd(R)
-        R_proj = U @ V.transpose(-2, -1)  # Closest orthogonal matrix
-        
-        # Ensure proper rotation (det = 1)
-        det = torch.det(R_proj)
-        R_proj[det < 0] = R_proj[det < 0] @ torch.tensor([[-1, 0], [0, 1]], device=self.device, dtype=R_proj.dtype)
-        
-        # Keep translation as-is
-        t = SE2_matrices[..., :2, 2]
-        
-        # Reconstruct SE(2) matrix
-        projected[..., :2, :2] = R_proj
-        projected[..., :2, 2] = t
-        projected[..., 2, 2] = 1.0
-        
-        return projected
-
     def _get_noisy_actions_small(self, clean_actions, timesteps):
         """
         Small displacement: se(2) tangent space approach (your current approach is mostly correct)
@@ -393,11 +332,11 @@ class InstantPolicyAgent(nn.Module):
     
     def _normalise_se2(self,se2_actions):
         normalized = se2_actions.clone()
-        normalized[...,:2] /= self.max_translation
-        normalized[...,2:3] /= self.max_rotation
+        normalized[...,:2] /= self.max_flow_translation
+        normalized[..., 2:3] /= self.max_rotation
         return normalized
 
     def _unnormalize_se2(self, normalized_se2):
-        translation = normalized_se2[..., :2] * self.max_translation
+        translation = normalized_se2[..., :2] * self.max_flow_translation 
         rotation = normalized_se2[..., 2:3] * self.max_rotation
         return torch.cat([translation, rotation], dim=-1)
