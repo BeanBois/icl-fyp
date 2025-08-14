@@ -551,7 +551,7 @@ class PseudoDemoGenerator:
         if actions.shape[0] < self.demo_length:
             return actions
         result = torch.zeros((10, actions.shape[1]), device = actions.device)
-        result[0] = [actions[0]]
+        result[0] = actions[0]
         total_middle_positions = actions.shape[0] - 2  # Exclude first and last
         
         for i in range(1, self.demo_length - 1):
@@ -561,7 +561,7 @@ class PseudoDemoGenerator:
             actual_index = int(round(middle_pos)) + 1
             result[i] = actions[actual_index]
         
-        result.append(actions[-1])  # Always include last item
+        result[-1] = actions[-1]  # Always include last item
         
         return result
     
