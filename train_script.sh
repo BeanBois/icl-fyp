@@ -25,4 +25,4 @@ source $PENV/bin/activate
 pip install -r "${WORK_DIR}/requirements.txt"
 
 
-python3 -u "${WORK_DIR}/train_norm_action.py"
+python3 -u "${WORK_DIR}/train.py"

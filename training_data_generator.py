@@ -7,7 +7,12 @@ import threading
 
 from tasks2d import LousyPacmanPseudoGame as PseudoGame 
 from tasks2d import LousyPacmanTensorizedPseudoGame as TensorizedPseudoGame
-from configs import CONFIGS
+from configs import PSEUDO_SCREEN_HEIGHT, PSEUDO_SCREEN_WIDTH
+
+# TODO: 
+# deal with demo length i think?
+# also the padding is a problem 
+
 
 
 
@@ -26,8 +31,6 @@ class TensorizedPseudoDemoGenerator:
         self.agent_key_points = PseudoGame.agent_keypoints
         self.translation_scale = 500
         self.demo_length = demo_length
-        self.max_translation = CONFIGS['TRAINING_MAX_TRANSLATION']
-        self.max_rotation = np.deg2rad(CONFIGS['MAX_ROTATION_DEG'])
         self.player_speed = 5 
         self.player_rot_speed = 5
         self.num_threads = num_threads
@@ -202,37 +205,51 @@ class TensorizedPseudoDemoGenerator:
     
     def _process_actions_tensor(self, actions: torch.Tensor) -> torch.Tensor:
         """Process actions to match the expected SE2 + state format."""
-        
-        # Convert actions to SE2 format (simplified)
         num_actions = min(self.demo_length, actions.shape[0])
         processed_actions = torch.zeros(num_actions, 10, device=self.device)  # 9 for SE2 + 1 for state
         
+        # Keep track of cumulative orientation for proper SE(2) conversion
+        current_orientation = 0.0  # Starting orientation in degrees
+        
         for i in range(num_actions):
-            # Create SE2 matrix from forward movement and rotation
-            forward_movement = actions[i, 0]
-            rotation = actions[i, 1] 
-            state = actions[i, 2]
+            forward_movement = actions[i, 0]    # Distance magnitude
+            rotation_deg = actions[i, 1]        # Rotation angle in degrees  
+            state = actions[i, 2]               # State change
             
-            # Simplified SE2 matrix creation
-            se2_matrix = torch.eye(3, device=self.device)
-            se2_matrix[0, 2] = forward_movement  # x translation
-            se2_matrix[1, 2] = 0  # y translation (simplified)
+            # Update orientation: new orientation after this rotation
+            current_orientation += rotation_deg
             
-            # Add rotation (simplified)
-            cos_r = torch.cos(rotation * torch.pi / 180)
-            sin_r = torch.sin(rotation * torch.pi / 180)
-            se2_matrix[0, 0] = cos_r
-            se2_matrix[0, 1] = -sin_r
-            se2_matrix[1, 0] = sin_r
-            se2_matrix[1, 1] = cos_r
+            # Convert to radians for trigonometry
+            total_orientation_rad = current_orientation * torch.pi / 180.0
+            rotation_rad = rotation_deg * torch.pi / 180.0
+            
+            # Option B: Forward movement is in the direction of FINAL orientation
+            # Decompose forward movement into x,y components
+            x_translation = forward_movement * torch.cos(total_orientation_rad)
+            y_translation = forward_movement * torch.sin(total_orientation_rad)
+            
+            # Create SE(2) matrix for this action
+            # This represents the transformation: rotate THEN translate
+            cos_r = torch.cos(rotation_rad)
+            sin_r = torch.sin(rotation_rad)
+            
+            se2_matrix = torch.zeros(3, 3, device=self.device)
+            se2_matrix[0, 0] = cos_r      # Rotation component
+            se2_matrix[0, 1] = -sin_r     # Rotation component
+            se2_matrix[1, 0] = sin_r      # Rotation component  
+            se2_matrix[1, 1] = cos_r      # Rotation component
+            se2_matrix[0, 2] = x_translation  # x translation in world frame
+            se2_matrix[1, 2] = y_translation  # y translation in world frame
+            se2_matrix[2, 2] = 1.0        # Homogeneous coordinate
             
             processed_actions[i, :9] = se2_matrix.flatten()
             processed_actions[i, 9] = state
         
-        # Apply accumulation
+        # Apply accumulation to get cumulative transformations
         processed_actions = self._accumulate_actions_tensor(processed_actions)
         
         return processed_actions
+
     
     def _accumulate_actions_tensor(self, actions: torch.Tensor) -> torch.Tensor:
         """Tensorized version of action accumulation."""
@@ -297,10 +314,10 @@ class TensorizedPseudoDemoGenerator:
     def _make_game(self, biased, augmented):
         """Original method preserved."""
         # Get screen dimensions from configs or use defaults
-        screen_width = CONFIGS.get('SCREEN_WIDTH', 800)
-        screen_height = CONFIGS.get('SCREEN_HEIGHT', 600)
-        
+        screen_width = PSEUDO_SCREEN_WIDTH
+        screen_height = PSEUDO_SCREEN_HEIGHT
         player_starting_pos = (random.randint(0, screen_width), random.randint(0, screen_height))
+
         return PseudoGame(
             player_starting_pos=player_starting_pos,
             max_num_sampled_waypoints=self.max_num_waypoints, 
@@ -379,11 +396,166 @@ def create_efficient_demo_generator(device='cpu', batch_size=32, **kwargs):
         **kwargs
     )
 
+# unused for now
+class PseudoDemoGenerator:
+
+    def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
+                 num_threads=4, demo_length = 10):
+        self.num_demos = num_demos
+        self.min_num_waypoints = min_num_waypoints
+        self.max_num_waypoints = max_num_waypoints
+        self.device = device
+        self.agent_key_points = PseudoGame.agent_keypoints
+        self.translation_scale = 500
+        self.demo_length = demo_length
+
+        self.player_speed = 5 
+        self.player_rot_speed = 5
+        self.num_threads = num_threads
+        self.biased_odds = 0.1
+        self.augmented = True
+        
+        # Thread-local storage for agent keypoints
+        self._thread_local = threading.local()
+
+    def get_batch_samples(self, batch_size: int) -> Tuple[torch.Tensor, List, torch.Tensor]:
+        """
+        Generate a batch of samples in parallel
+        Returns:
+            curr_obs_batch: List of batch_size current observations
+            context_batch: List of batch_size contexts (each context is a list of demos)
+            clean_actions_batch: Tensor of shape [batch_size, pred_horizon, 4]
+        """
+        # Use ThreadPoolExecutor to generate samples in parallel
+        with ThreadPoolExecutor(max_workers=self.num_threads) as executor:
+            # Submit all sample generation tasks
+
+            futures = [executor.submit(self._generate_single_sample) for _ in range(batch_size)]
+            
+            # Collect results as they complete
+            curr_obs_batch = []
+            context_batch = []
+            clean_actions_list = []
+
+            
+            for future in as_completed(futures):
+                curr_obs, context, clean_actions = future.result()
+                curr_obs_batch.append(curr_obs)
+                context_batch.append(context)
+                clean_actions_list.append(clean_actions)
+
+        
+        # Stack clean actions into a single tensor [batch_size, pred_horizon, 4]
+        # clean_actions_batch = torch.stack(clean_actions_list, dim=0)
+        clean_actions_batch = clean_actions_list
+        
+        return curr_obs_batch, context_batch, clean_actions_batch
+
+    def _generate_single_sample(self) -> Tuple[dict, List, torch.Tensor]:
+        """Generate a single training sample (thread-safe)"""
+        biased = np.random.rand() < self.biased_odds
+        augmented = self.augmented # for now 
+        pseudo_game = self._make_game(biased, augmented)
+        context = self._get_context(pseudo_game)   
+        curr_obs, clean_actions = self._get_ground_truth(pseudo_game)
+        return curr_obs, context, clean_actions
+
+    def get_agent_keypoints(self):
+    
+        agent_keypoints = torch.zeros((len(self.agent_key_points), 2), device=self.device)
+        agent_keypoints[0] = torch.tensor(self.agent_key_points['front'], device=self.device)
+        agent_keypoints[1] = torch.tensor(self.agent_key_points['back-left'], device=self.device)
+        agent_keypoints[2] = torch.tensor(self.agent_key_points['back-right'], device=self.device)
+        agent_keypoints[3] = torch.tensor(self.agent_key_points['center'], device=self.device)
+        return agent_keypoints
+    
+    def _make_game(self, biased,augmented):
+        player_starting_pos =(random.randint(0,PSEUDO_SCREEN_WIDTH), random.randint(0,PSEUDO_SCREEN_HEIGHT))
+        return PseudoGame(
+                    player_starting_pos=player_starting_pos,
+                    max_num_sampled_waypoints=self.max_num_waypoints, 
+                    min_num_sampled_waypoints=self.min_num_waypoints, 
+                    biased=biased, 
+                    augmented=augmented
+                )
+
+    def _run_game(self, pseudo_demo):
+        max_retries = 1000
+        player_starting_pos =(random.randint(0,PSEUDO_SCREEN_WIDTH), random.randint(0,PSEUDO_SCREEN_HEIGHT))
+        for attempt in range(max_retries):
+            try: 
+                # first reset 
+                pseudo_demo.reset_game(shuffle=True) # config stays, but game resets (player, obj change positions)
+
+                pseudo_demo.run()
+                return pseudo_demo
+            except Exception as e:
+                if attempt == max_retries-1:
+                    raise 
+                continue
+
+    def _get_context(self, pseudo_game):
+        context = []
+        for _ in range(self.num_demos - 1):
+            pseudo_demo = self._run_game(pseudo_game)
+            observations = pseudo_demo.observations
+            sample_rate = min(len(observations) // self.demo_length,1)
+            sampled_obs = observations[::sample_rate][:self.demo_length]
+            context.append(sampled_obs)
+        return context
+            
+    def _get_ground_truth(self, pseudo_game):
+        pseudo_game.set_augmented(np.random.rand() > 0.5) 
+        pseudo_demo = self._run_game(pseudo_game)
+        pd_actions = pseudo_demo.get_actions(mode='se2')
+
+        se2_actions = np.array([action[0].flatten() for action in pd_actions]) # n x 9
+        state_actions = np.array([action[1] for action in pd_actions]) # n x 1
+        state_actions = state_actions.reshape(-1,1)
+        actions = np.concatenate([se2_actions, state_actions], axis=1)
+        actions = torch.tensor(
+            actions, 
+            dtype=torch.float, 
+            device=self.device
+        )          
+        temp = actions.shape
+        actions = self._accumulate_actions(actions)
+        sample_rate = min(actions.shape[0] // self.demo_length,1)
+        assert temp == actions.shape
+        actions = actions[::sample_rate][:self.demo_length]
+        true_obs = pseudo_demo.observations[::sample_rate][:self.demo_length]
+
+
+        return true_obs[0], actions
+    
+    def _accumulate_actions(self, actions):
+        n = actions.shape[0]
+        
+        # Extract and reshape SE(2) matrices
+        se2_matrices = actions[:, :9].view(n, 3, 3)
+        state_actions = actions[:, 9:]
+        
+        # Compute cumulative matrix products
+        cumulative_matrices = torch.zeros_like(se2_matrices)
+        cumulative_matrices[0] = se2_matrices[0]
+        
+        for i in range(1, n):
+            cumulative_matrices[i] = torch.matmul(cumulative_matrices[i-1], se2_matrices[i])
+        
+        # Flatten back and concatenate with state actions
+        cumulative_se2_flat = cumulative_matrices.view(n, 9)
+        cumulative_actions = torch.cat([cumulative_se2_flat, state_actions], dim=1)
+        
+        return cumulative_actions
+
+    def _process_demos(self):
+        return    
+
 # Example usage:
 # Old way:
 # demo_gen = PseudoDemoGenerator(device='cuda', num_demos=5)
 # curr_obs, context, actions = demo_gen.get_batch_samples(64)
 
 # New way (same API, but faster):
-# demo_gen = TensorizedPseudoDemoGenerator(device='cuda', num_demos=5, batch_size=32)
+# demo_gen = TensorizedPseudoDemoGenerator(device='cpu', num_demos=5, batch_size=32)
 # curr_obs, context, actions = demo_gen.get_batch_samples(64)  # Will use tensorized path

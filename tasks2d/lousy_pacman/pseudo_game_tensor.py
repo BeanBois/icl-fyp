@@ -7,7 +7,6 @@ from .pseudo_game_aux import *
 from .pseudo_game import PseudoGame
 
 
-
 def batch_obstacle_blocking(player_pos: torch.Tensor, goal_center: torch.Tensor, 
                           obst_center: torch.Tensor, obst_width: torch.Tensor, 
                           obst_height: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -147,7 +146,7 @@ def batch_interpolate_waypoints(waypoints: torch.Tensor, target_num_waypoints: i
 
 class TensorizedPseudoGame:
     agent_keypoints = PseudoGame.agent_keypoints
-    """Tensorized version of PseudoGame for efficient batch processing."""
+    """Fixed tensorized version of PseudoGame that properly simulates step-by-step execution."""
     
     def __init__(self, batch_size: int = 32, device: str = 'cpu', **kwargs):
         self.batch_size = batch_size
@@ -162,14 +161,10 @@ class TensorizedPseudoGame:
         self.biased = kwargs.get('biased', DEFAULT_NOT_BIASED)
         self.augmented = kwargs.get('augmented', DEFAULT_NOT_AUGMENTED)
         self.max_length = kwargs.get('MAX_LENGTH', 100)
+        self.waypoint_threshold = kwargs.get('waypoint_threshold', 5.0)
         
     def generate_batch_trajectories(self) -> dict:
-        """Generate a batch of trajectories efficiently using tensor operations."""
-        
-        # Initialize batch tensors
-        batch_waypoints = []
-        batch_actions = []
-        batch_observations = []
+        """Generate a batch of trajectories using proper step-by-step simulation."""
         
         # Generate object configurations for the batch
         batch_object_configs = self._generate_batch_object_configs()
@@ -184,17 +179,202 @@ class TensorizedPseudoGame:
         if self.augmented:
             batch_waypoints = self._augment_waypoints_batch(batch_waypoints)
         
-        # Generate actions from waypoints
-        batch_actions = self._generate_actions_from_waypoints_batch(batch_waypoints, batch_object_configs)
+        # Now simulate the actual step-by-step execution
+        trajectory_data = self._simulate_batch_execution(batch_waypoints, batch_object_configs)
         
-        # Generate observations (simplified - you may need to adapt this)
-        batch_observations = self._generate_observations_batch(batch_object_configs, batch_waypoints)
+        return trajectory_data
+    
+    def _simulate_batch_execution(self, batch_waypoints: torch.Tensor, batch_configs: dict) -> dict:
+        """
+        Simulate step-by-step execution for the entire batch, like the original PseudoGame.
+        """
+        batch_size = batch_waypoints.shape[0]
+        
+        # Initialize simulation state
+        current_positions = batch_configs['player_positions'].clone()
+        current_orientations = batch_configs['player_orientations'].clone()
+        waypoint_offsets = torch.zeros(batch_size, dtype=torch.long, device=self.device)
+        done_mask = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+        
+        # Storage for trajectory data
+        all_actions = []
+        all_observations = []
+        timesteps = []
+        
+        for t in range(self.max_length):
+            # Generate observations for current state
+            agent_positions_batch = self._get_agent_pos_batch(current_positions, current_orientations)
+            observations = {
+                'agent_positions': agent_positions_batch,
+                'agent_orientations': current_orientations.clone(),
+                'object_positions': batch_configs['object_positions'],
+                'object_types': batch_configs['object_types'],
+                'current_positions': current_positions.clone(),
+                'waypoint_offsets': waypoint_offsets.clone(),
+                'done': done_mask.clone(),
+                'timestep': t
+            }
+            all_observations.append(observations)
+            
+            # Check if all trajectories are done
+            if done_mask.all():
+                break
+            
+            # Calculate actions for current timestep
+            actions = self._calculate_batch_actions(
+                current_positions, current_orientations, 
+                batch_waypoints, waypoint_offsets, done_mask
+            )
+            all_actions.append(actions)
+            
+            # Execute actions and update positions/orientations
+            current_positions, current_orientations = self._execute_batch_actions(
+                current_positions, current_orientations, actions, done_mask
+            )
+            
+            # Check waypoint proximity and update offsets
+            waypoint_offsets, newly_done = self._update_waypoint_offsets(
+                current_positions, batch_waypoints, waypoint_offsets, done_mask
+            )
+            done_mask = done_mask | newly_done
+            
+            timesteps.append(t)
+        
+        # Pad sequences to same length for batching
+        max_timesteps = len(all_actions)
+        padded_actions = self._pad_sequence_data(all_actions, max_timesteps)
+        padded_observations = self._pad_observation_data(all_observations, max_timesteps)
         
         return {
+            'actions': padded_actions,
+            'observations': padded_observations,
             'waypoints': batch_waypoints,
-            'actions': batch_actions,
-            'observations': batch_observations,
-            'object_configs': batch_object_configs
+            'object_configs': batch_configs,
+            'trajectory_lengths': torch.tensor(timesteps, device=self.device),
+            'final_done_mask': done_mask
+        }
+    
+    def _calculate_batch_actions(self, current_positions: torch.Tensor, current_orientations: torch.Tensor,
+                               batch_waypoints: torch.Tensor, waypoint_offsets: torch.Tensor, 
+                               done_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Calculate actions for the current timestep, mimicking go_to_next_waypoint logic.
+        """
+        batch_size = current_positions.shape[0]
+        actions = torch.zeros(batch_size, 3, device=self.device)  # [forward, rotation, state]
+        
+        for b in range(batch_size):
+            if done_mask[b] or waypoint_offsets[b] >= batch_waypoints.shape[1]:
+                continue  # Skip if done or no more waypoints
+                
+            # Get current waypoint
+            current_waypoint = batch_waypoints[b, waypoint_offsets[b]]
+            target_position = current_waypoint[:2]
+            target_state = current_waypoint[2]
+            
+            # Calculate movement toward waypoint (same logic as original)
+            player_center = current_positions[b]
+            dydx = target_position - player_center
+            
+            # Calculate angle to target
+            angle_rad = torch.atan2(dydx[1], dydx[0])
+            final_angle_deg = angle_rad * 180 / torch.pi
+            
+            # Calculate rotation needed
+            current_orientation = current_orientations[b]
+            rotation_needed = final_angle_deg - current_orientation
+            
+            # Normalize rotation to [-180, 180] range
+            rotation_needed = torch.remainder(rotation_needed + 180, 360) - 180
+            
+            # Clamp actions
+            distance = torch.norm(dydx)
+            forward_movement = torch.clamp(distance, 0, MAX_FORWARD_DIST)
+            rotation = torch.clamp(rotation_needed, -MAX_ROTATION, MAX_ROTATION)
+            
+            actions[b, 0] = forward_movement
+            actions[b, 1] = rotation
+            actions[b, 2] = target_state
+        
+        return actions
+    
+    def _execute_batch_actions(self, current_positions: torch.Tensor, current_orientations: torch.Tensor,
+                             actions: torch.Tensor, done_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Execute actions and update player positions and orientations.
+        """
+        new_positions = current_positions.clone()
+        new_orientations = current_orientations.clone()
+        
+        # Update orientations first
+        active_mask = ~done_mask
+        new_orientations[active_mask] += actions[active_mask, 1]
+        
+        # Update positions based on forward movement and new orientation
+        forward_distances = actions[active_mask, 0]
+        orientations_rad = new_orientations[active_mask] * torch.pi / 180
+        
+        # Calculate movement vectors
+        dx = forward_distances * torch.cos(orientations_rad)
+        dy = forward_distances * torch.sin(orientations_rad)
+        
+        new_positions[active_mask, 0] += dx
+        new_positions[active_mask, 1] += dy
+        
+        # Clamp positions to screen boundaries
+        new_positions[:, 0] = torch.clamp(new_positions[:, 0], 0, self.screen_width - 1)
+        new_positions[:, 1] = torch.clamp(new_positions[:, 1], 0, self.screen_height - 1)
+        
+        return new_positions, new_orientations
+    
+    def _update_waypoint_offsets(self, current_positions: torch.Tensor, batch_waypoints: torch.Tensor,
+                               waypoint_offsets: torch.Tensor, done_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Check waypoint proximity and update offsets, mimicking the original logic.
+        """
+        batch_size = current_positions.shape[0]
+        new_offsets = waypoint_offsets.clone()
+        newly_done = torch.zeros(batch_size, dtype=torch.bool, device=self.device)
+        
+        for b in range(batch_size):
+            if done_mask[b] or waypoint_offsets[b] >= batch_waypoints.shape[1]:
+                continue
+                
+            # Check if near current waypoint
+            current_waypoint = batch_waypoints[b, waypoint_offsets[b]]
+            target_position = current_waypoint[:2]
+            player_center = current_positions[b]
+            
+            distance_to_waypoint = torch.norm(target_position - player_center)
+            
+            if distance_to_waypoint < self.waypoint_threshold:
+                new_offsets[b] += 1
+                
+                # Check if this was the last waypoint
+                if new_offsets[b] >= batch_waypoints.shape[1]:
+                    newly_done[b] = True
+        
+        return new_offsets, newly_done
+    
+    def _pad_sequence_data(self, sequence_list: List[torch.Tensor], max_length: int) -> torch.Tensor:
+        """Pad sequence data to same length for batching."""
+        if not sequence_list:
+            return torch.zeros(self.batch_size, 0, 3, device=self.device)
+            
+        # Stack all timesteps
+        stacked = torch.stack(sequence_list, dim=1)  # (batch_size, timesteps, action_dim)
+        return stacked
+    
+    def _pad_observation_data(self, obs_list: List[dict], max_length: int) -> dict:
+        """Pad observation data to same length for batching."""
+        if not obs_list:
+            return {}
+            
+        # For simplicity, just return the observations as a list
+        # In practice, you might want to stack certain tensors
+        return {
+            'sequence': obs_list,
+            'length': len(obs_list)
         }
     
     def _generate_batch_object_configs(self) -> dict:
@@ -207,7 +387,7 @@ class TensorizedPseudoGame:
                                             (self.batch_size, self.num_objects, 2), device=self.device).float(),
             'object_types': torch.randint(0, len(AVAILABLE_OBJECTS), 
                                         (self.batch_size, self.num_objects), device=self.device),
-            'object_dimensions': torch.rand(self.batch_size, self.num_objects, 2, device=self.device) * 60 + 30  # random width/height
+            'object_dimensions': torch.rand(self.batch_size, self.num_objects, 2, device=self.device) * 60 + 30
         }
         return batch_configs
     
@@ -331,53 +511,6 @@ class TensorizedPseudoGame:
         
         return augmented
     
-    def _generate_actions_from_waypoints_batch(self, batch_waypoints: torch.Tensor, 
-                                             batch_configs: dict) -> torch.Tensor:
-        """Generate actions from waypoints for the entire batch."""
-        batch_size, num_waypoints, _ = batch_waypoints.shape
-        
-        # Initialize action tensor (forward_movement, rotation, state_change)
-        batch_actions = torch.zeros(batch_size, num_waypoints, 3, device=self.device)
-        
-        player_positions = batch_configs['player_positions']
-        player_orientations = batch_configs['player_orientations']
-        
-        for t in range(num_waypoints):
-            if t == 0:
-                current_positions = player_positions
-                current_orientations = player_orientations
-            else:
-                current_positions = batch_waypoints[:, t-1, :2]
-                # Update orientations based on previous actions (simplified)
-                current_orientations = current_orientations + batch_actions[:, t-1, 1]
-            
-            target_positions = batch_waypoints[:, t, :2]
-            target_states = batch_waypoints[:, t, 2]
-            
-            # Calculate movement vectors
-            dydx = target_positions - current_positions
-            distances = torch.norm(dydx, dim=1)
-            
-            # Calculate angles
-            angles_rad = torch.atan2(dydx[:, 1], dydx[:, 0])
-            angles_deg = angles_rad * 180 / torch.pi
-            
-            # Calculate rotation needed
-            rotation_needed = angles_deg - current_orientations
-            
-            # Normalize rotation to [-180, 180]
-            rotation_needed = torch.remainder(rotation_needed + 180, 360) - 180
-            
-            # Clamp actions
-            forward_movement = torch.clamp(distances, 0, MAX_FORWARD_DIST)
-            rotation = torch.clamp(rotation_needed, -MAX_ROTATION, MAX_ROTATION)
-            
-            batch_actions[:, t, 0] = forward_movement
-            batch_actions[:, t, 1] = rotation
-            batch_actions[:, t, 2] = target_states
-        
-        return batch_actions
-    
     def _get_agent_pos_batch(self, player_positions: torch.Tensor, player_orientations: torch.Tensor) -> torch.Tensor:
         """
         Batch version of _get_agent_pos that creates triangle keypoints for each player.
@@ -425,30 +558,10 @@ class TensorizedPseudoGame:
         
         return agent_pos_batch
 
-    def _generate_observations_batch(self, batch_configs: dict, batch_waypoints: torch.Tensor) -> dict:
-        """Generate observations for the batch with proper agent positions."""
-        batch_size = batch_configs['player_positions'].shape[0]
-        
-        # Calculate proper agent positions (center + triangle keypoints)
-        agent_positions_batch = self._get_agent_pos_batch(
-            batch_configs['player_positions'], 
-            batch_configs['player_orientations']
-        )
-        # Create observations
-        observations = {
-            'agent_positions': agent_positions_batch,  # (batch_size, 4, 2)
-            'agent_orientations': batch_configs['player_orientations'],
-            'object_positions': batch_configs['object_positions'],
-            'object_types': batch_configs['object_types'],
-            'waypoints': batch_waypoints,
-            'done': torch.zeros(batch_size, dtype=torch.bool, device=self.device)
-        }
-        
-        return observations
 
 # Usage example
 def generate_efficient_data(num_batches: int = 10, batch_size: int = 32, device: str = 'cpu'):
-    """Generate training data efficiently using tensorized operations."""
+    """Generate training data efficiently using fixed tensorized operations."""
     
     tensorized_game = TensorizedPseudoGame(
         batch_size=batch_size,
@@ -462,11 +575,11 @@ def generate_efficient_data(num_batches: int = 10, batch_size: int = 32, device:
     for batch_idx in range(num_batches):
         print(f"Generating batch {batch_idx + 1}/{num_batches}")
         
-        # Generate a full batch of trajectories
+        # Generate a full batch of trajectories with proper simulation
         batch_data = tensorized_game.generate_batch_trajectories()
         all_trajectories.append(batch_data)
     
     return all_trajectories
 
 # Example usage:
-trajectories = generate_efficient_data(num_batches=5, batch_size=64, device='cpu')
+# trajectories = generate_efficient_data(num_batches=5, batch_size=64, device='cpu')

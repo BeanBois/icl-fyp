@@ -1,3 +1,4 @@
+# testing stuff we should get to this really soon 
 
 # for pseudogame 
 from tasks2d import LousyPacmanPseudoGame as PseudoGame
@@ -11,3 +12,4 @@ for _ in range(100):
     )
     game.run()
 print('test passed!')
+

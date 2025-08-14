@@ -99,13 +99,11 @@ class InstantPolicy(nn.Module):
         self.psi = PsiNN(num_att_heads=num_att_heads, head_dim=head_dim, device=self.device).to(self.device)
 
     # εθ(Gk) = ψ(G(σ(Ga_l),ϕ(G_c(σ(Gt_l),{σ(G1:L_l )}1:N)))
-    # might be going abuot it the wrong way. bottom up > top bottom
-    # TODO: SA here
     def _process_observation_to_tensor(self, obs):
         point_clouds = obs['point-clouds'] if type(obs['point-clouds']) == torch.Tensor else torch.tensor(obs['point-clouds'], device = self.device, dtype=torch.float32)
         agent_pos = torch.tensor(obs['agent-pos'], device = self.device, dtype=torch.float32)
         agent_center = agent_pos[0]
-        coords = obs['coords'] if type(obs['coords']) == torch.Tensor else torch.tensor(obs['coords'], device = self.device, dtype=torch.float32) - agent_center
+        coords = obs['coords'] if type(obs['coords']) == torch.Tensor else torch.tensor(obs['coords'], device = self.device, dtype=torch.float32) - agent_center # express coords wrt to agent center
         agent_state = obs['agent-state']
         agent_orientation = torch.tensor(obs['agent-orientation'], device = self.device, dtype=torch.float32) # angle in degree
         done = torch.tensor(obs['done'], device = self.device)
@@ -119,7 +117,6 @@ class InstantPolicy(nn.Module):
         selected_pointclouds = point_clouds[mask]
         return selected_pointclouds
 
-    # yea something is wrong here 
     def _embed_local_graph(self,graph, features):
 
         # Embed Nodes first
@@ -348,9 +345,6 @@ class InstantPolicy(nn.Module):
         t = 0
 
 
-        # problem starts here 
-
-        # for action in actions:
         for noisy_action in noisy_actions: # T * 10 
             action_obj = self._recover_action_obj(noisy_action)
             action_graph = ActionGraph(curr_graph, action_obj)
@@ -448,7 +442,7 @@ class InstantPolicy(nn.Module):
         forward_movement = np.dot(movement, forward_dir)
 
         # then get state change
-        state_change = int(abs(state_change) > 0.5)
+        state_change = 1 if state_change > 0 else -1 
         theta_deg = torch.rad2deg(theta)
 
         # state_change is a

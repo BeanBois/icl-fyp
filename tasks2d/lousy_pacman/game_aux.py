@@ -9,7 +9,7 @@ import pygame
 
 
 class PlayerState(Enum):
-    NOT_EATING = 0
+    NOT_EATING = -1
     EATING = 1
     
 

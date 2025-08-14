@@ -1,18 +1,18 @@
-from tasks2d import LousyPacmanPseudoScreenHeight as SCREEN_HEIGHT
-from tasks2d import LousyPacmanPseudoScreenWidth as SCREEN_WIDTH
-from tasks2d import LousyPacmanPseudoGame as  PseudoGame
+from tasks2d import LousyPacmanPseudoScreenHeight as PSEUDO_SCREEN_HEIGHT
+from tasks2d import LousyPacmanPseudoScreenWidth as PSEUDO_SCREEN_WIDTH
+from tasks2d import LousyPacManScreenWidth as SCREEN_WIDTH 
+from tasks2d import LousyPacManScreenHeight as SCREEN_HEIGHT
 from tasks2d import LousyPacmanPseudoMaxForwDist as  PSEUDO_MAX_TRANSLATION
 from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 
-_type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
 
-version = '4_2'
-# action_mode = 'small' #| 'large'
-action_mode = 'large'
+
+_type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
+version = '4_3'
 geo_version = '2'
 
-SAMPLING_RATE = 10 # Vibes, the down sampling shouldnt exceeed 10 frames 
+
 
 CONFIGS = {
 
@@ -31,8 +31,10 @@ CONFIGS = {
     'HEAD_DIM' : 16, # REPLACE NODE EMB DIM 
     'AGENT_STATE_EMB_DIM' : 16,
     'EDGE_POS_DIM': 2,
-    'TRAINING_MAX_TRANSLATION' : SAMPLING_RATE * PSEUDO_MAX_TRANSLATION, # WIDTH^2 + HEIGHT^2 SQRT 
-    'MAX_ROTATION_DEG' : SAMPLING_RATE * PSEUDO_MAX_ROTATION,
+    
+    'TRAINING_MAX_TRANSLATION' : (PSEUDO_SCREEN_HEIGHT**2 + PSEUDO_SCREEN_WIDTH**2)**2, # WIDTH^2 + HEIGHT^2 SQRT 
+    'MAX_ROTATION_DEG' : 180,
+
     'PIXEL_PER_STEP' : PSEUDO_MAX_TRANSLATION,
     'DEGREE_PER_TURN' : PSEUDO_MAX_ROTATION,
 
@@ -43,25 +45,23 @@ CONFIGS = {
     'MIN_NUM_WAYPOINTS' : 2,
     'DEMO_MAX_LENGTH' : 10,
 
-    # DEMO GIVEN CONFIGS
-    'SAMPLING_RATE' : SAMPLING_RATE,
 
 
 
     # TRAINING CONFIGS:
-    'NUM_DIFFUSION_STEPS' : 500,
+    'NUM_DIFFUSION_STEPS' : 1000,
     'NUM_DEMO_GIVEN' : 3,
-    'NUM_STEPS_PER_EPOCH' : 100,
+    'NUM_STEPS_PER_EPOCH' : 50,
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
-    'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}_{action_mode}.pth",
+    'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
     'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 100,
     'TEST_NUM_DEMO_GIVEN' : 1,
-    'TESTING_MAX_UNIT_TRANSLATION' : SAMPLING_RATE * PSEUDO_MAX_TRANSLATION, # WIDTH^2 + HEIGHT^2 SQRT
-    'TESTING_MAX_UNIT_ROTATION' : SAMPLING_RATE * PSEUDO_MAX_ROTATION,
+    'TESTING_MAX_UNIT_TRANSLATION' :(SCREEN_HEIGHT**2 + SCREEN_WIDTH**2)**2,
+
     'STATE_CHANGE_ODDS': (0.5, 0.5),
     'FIG_FILENAME' : f'avg_loss_ip_{_type}_v{version}',
     'MANUAL_DEMO_COLLECT' : True,
