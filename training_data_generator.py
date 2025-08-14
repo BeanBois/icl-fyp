@@ -548,7 +548,7 @@ class PseudoDemoGenerator:
         return cumulative_actions
 
     def _downsample_actions(self,actions):
-        if actions.shape < self.demo_length:
+        if actions.shape[0] < self.demo_length:
             return actions
         result = torch.zeros((10, actions.shape[1]), device = actions.device)
         result[0] = [actions[0]]
