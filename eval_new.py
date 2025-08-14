@@ -85,14 +85,14 @@ def find_transformation_batch(source_points: torch.Tensor, target_points: torch.
 
 def get_random_noisy_action(device, pred_horizon):
     """Generate initial noisy SE(2) actions for diffusion process"""
-    max_rot = torch.tensor(CONFIGS['DEGREE_PER_TURN'], device=device)
+    max_rot = torch.tensor(CONFIGS['MAX_DEGREE_PER_TURN'], device=device)
     max_rot = torch.deg2rad(max_rot)
     
     # Generate pred_horizon random actions
     rot = (torch.rand(pred_horizon, device=device) - 0.5) * max_rot  # [-max_rot/2, max_rot/2]
     
     # Random translation for each action
-    translation = torch.rand(pred_horizon, device=device) * CONFIGS['PIXEL_PER_STEP']
+    translation = torch.rand(pred_horizon, device=device) * CONFIGS['MAX_DISPLACEMENT_PER_STEP']
     x_translation = torch.cos(rot) * translation
     y_translation = torch.sin(rot) * translation
     
@@ -381,8 +381,8 @@ if __name__ == "__main__":
         head_dim=CONFIGS['HEAD_DIM'],
         agent_state_embd_dim=CONFIGS['AGENT_STATE_EMB_DIM'],
         edge_pos_dim=CONFIGS['EDGE_POS_DIM'],
-        max_flow_translation=CONFIGS['PIXEL_PER_STEP'] * 2,
-        max_flow_rotation=CONFIGS['DEGREE_PER_TURN'] * 2
+        max_flow_translation=CONFIGS['MAX_DISPLACEMENT_PER_STEP'] * 2,
+        max_flow_rotation=CONFIGS['MAX_DEGREE_PER_TURN'] * 2
     )
     
     # Load the trained agent

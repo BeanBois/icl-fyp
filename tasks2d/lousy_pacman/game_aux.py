@@ -52,9 +52,9 @@ class Player:
         self.x = x
         self.y = y
         self.angle = 0  # Facing direction in degrees
-        self.size = 15
-        self.speed = 15
-        self.rotation_speed = 5
+        self.size = PLAYER_SIZE
+        self.speed = PLAYER_SPEED
+        self.rotation_speed = PLAYER_ROTATION_SPEED
         self.state = state
         self.screen_width = screen_width
         self.screen_height = screen_height

@@ -1,4 +1,5 @@
 
+from .game_configs import PLAYER_SIZE, PLAYER_SPEED, PLAYER_ROTATION_SPEED
 
 # class PseudoGameMode(Enum):
 #     EAT_EDIBLE = 1
@@ -19,8 +20,8 @@ PLAYER_START_X = 100
 PLAYER_START_Y = 100
 
 # for player movement 
-MAX_FORWARD_DIST = 50
-MAX_ROTATION = 18
+MAX_FORWARD_DIST = PLAYER_SPEED  
+MAX_ROTATION = PLAYER_ROTATION_SPEED 
 
 # for data generation 
 MAX_SAMPLING_RADIUS = 50

@@ -2,24 +2,25 @@ from tasks2d import LousyPacmanPseudoScreenHeight as PSEUDO_SCREEN_HEIGHT
 from tasks2d import LousyPacmanPseudoScreenWidth as PSEUDO_SCREEN_WIDTH
 from tasks2d import LousyPacManScreenWidth as SCREEN_WIDTH 
 from tasks2d import LousyPacManScreenHeight as SCREEN_HEIGHT
-from tasks2d import LousyPacmanPseudoMaxForwDist as  PSEUDO_MAX_TRANSLATION
+from tasks2d import LousyPacmanPseudoMaxForwDist as PSEUDO_MAX_TRANSLATION
 from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 
 
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = '4_3'
+version = '4_4'
 geo_version = '2'
+
 
 
 
 CONFIGS = {
 
     # GEO ENCODER TRAINING CONFIGS
-    'GEO_NUM_EPOCHS' : 200,
-    'GEO_BATCH_SIZE' : 5000,
-    'TRAIN_GEO_ENCODER' : False,
+    'GEO_NUM_EPOCHS' : 100,
+    'GEO_BATCH_SIZE' : 100,
+    'TRAIN_GEO_ENCODER' : True,
     'NUM_SAMPLED_POINTCLOUDS' : 8,
     'GROUPING_RADIUS' : 30,
 
@@ -31,21 +32,18 @@ CONFIGS = {
     'HEAD_DIM' : 16, # REPLACE NODE EMB DIM 
     'AGENT_STATE_EMB_DIM' : 16,
     'EDGE_POS_DIM': 2,
-    
+
+     # for normalising 
     'TRAINING_MAX_TRANSLATION' : (PSEUDO_SCREEN_HEIGHT**2 + PSEUDO_SCREEN_WIDTH**2)**2, # WIDTH^2 + HEIGHT^2 SQRT 
     'MAX_ROTATION_DEG' : 180,
 
-    'PIXEL_PER_STEP' : PSEUDO_MAX_TRANSLATION,
-    'DEGREE_PER_TURN' : PSEUDO_MAX_ROTATION,
-
-
+    'MAX_DISPLACEMENT_PER_STEP' : PSEUDO_MAX_TRANSLATION * 2, # params is vibes. since pseudo game is downsampled quite a bit
+    'MAX_DEGREE_PER_TURN' : PSEUDO_MAX_ROTATION * 2,
 
     # PSEUDO-DEMO CONFIGS
     "MAX_NUM_WAYPOINTS" : 6,
     'MIN_NUM_WAYPOINTS' : 2,
     'DEMO_MAX_LENGTH' : 10,
-
-
 
 
     # TRAINING CONFIGS:

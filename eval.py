@@ -126,14 +126,14 @@ def deduct_actions(main, subtractor,device):
 
 def get_random_noisy_action(device, pred_horizon):
     """Generate initial noisy SE(2) actions for diffusion process"""
-    max_rot = torch.tensor(CONFIGS['DEGREE_PER_TURN'], device=device)
+    max_rot = torch.tensor(CONFIGS['MAX_DEGREE_PER_TURN'], device=device)
     max_rot = torch.deg2rad(max_rot)
     
     # Generate pred_horizon random actions
     rot = (torch.rand(pred_horizon, device=device) - 0.5) * max_rot  # [-max_rot/2, max_rot/2]
     
     # Random translation for each action
-    translation = torch.rand(pred_horizon, device=device) * CONFIGS['PIXEL_PER_STEP']
+    translation = torch.rand(pred_horizon, device=device) * CONFIGS['MAX_DISPLACEMENT_PER_STEP']
     x_translation = torch.cos(rot) * translation
     y_translation = torch.sin(rot) * translation
     
@@ -334,8 +334,8 @@ if __name__ == "__main__":
         edge_pos_dim=CONFIGS['EDGE_POS_DIM'],
 
         # Add normalization parameters
-        max_flow_translation=CONFIGS['PIXEL_PER_STEP'] * 2,  # 2cm = twice the 1cm max displacement
-        max_flow_rotation=CONFIGS['DEGREE_PER_TURN'] * 2      # 6 degrees = twice the 3 degree max displacement
+        max_flow_translation=CONFIGS['MAX_DISPLACEMENT_PER_STEP'] * 2,  # 2cm = twice the 1cm max displacement
+        max_flow_rotation=CONFIGS['MAX_DEGREE_PER_TURN'] * 2      # 6 degrees = twice the 3 degree max displacement
     )
     # Load the trained agent
     if torch.cuda.is_available() and device == 'cuda':

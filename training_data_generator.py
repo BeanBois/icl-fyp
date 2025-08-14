@@ -400,7 +400,7 @@ def create_efficient_demo_generator(device='cpu', batch_size=32, **kwargs):
 class PseudoDemoGenerator:
 
     def __init__(self, device, num_demos=5, min_num_waypoints=2, max_num_waypoints=6, 
-                 num_threads=4, demo_length = 10):
+                 num_threads=2, demo_length = 10):
         self.num_demos = num_demos
         self.min_num_waypoints = min_num_waypoints
         self.max_num_waypoints = max_num_waypoints

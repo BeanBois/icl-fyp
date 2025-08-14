@@ -203,8 +203,8 @@ if __name__ == "__main__":
         edge_pos_dim=CONFIGS['EDGE_POS_DIM'],
 
         # Add normalization parameters
-        max_flow_translation=CONFIGS['PIXEL_PER_STEP'] * 2,  # 2cm = twice the 1cm max displacement
-        max_flow_rotation=CONFIGS['DEGREE_PER_TURN'] * 2      # 6 degrees = twice the 3 degree max displacement
+        max_flow_translation=CONFIGS['MAX_DISPLACEMENT_PER_STEP'] * 2,  # 2cm = twice the 1cm max displacement
+        max_flow_rotation=CONFIGS['MAX_DEGREE_PER_TURN'] * 2      # 6 degrees = twice the 3 degree max displacement
     )
     
     # Initialize trainer
