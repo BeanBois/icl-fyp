@@ -198,12 +198,13 @@ class PseudoGame:
             distance = np.linalg.norm(dydx)
             
             # Clamp distance to MAX_FORWARD_DIST
+
             forward_movement = min(distance, MAX_FORWARD_DIST)
+            
             for player_state in PlayerState:
                 if state_change == player_state.value:
                     state_change = player_state
                     continue
-
             action = Action(forward_movement=forward_movement, rotation_deg=rotation, state_change=state_change)
             self.actions.append(action)  # take in actions as se2
             self.player.move_with_action(action)

@@ -53,7 +53,7 @@ CONFIGS = {
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
     'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
-    'BATCH_SIZE' : 10,
+    'BATCH_SIZE' : 1,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 100,

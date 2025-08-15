@@ -117,7 +117,7 @@ class InstantPolicy(nn.Module):
         selected_pointclouds = point_clouds[mask]
         return selected_pointclouds
 
-    def _embed_local_graph(self,graph, features):
+    def _embed_local_graph(self,graph, features, t_embd = None):
 
         # Embed Nodes first
         node_features_dict = dict()
@@ -143,6 +143,11 @@ class InstantPolicy(nn.Module):
                 agent_state_emb = self.agent_state_embedder(agent_state)
                 agent_node_emb = self.agent_embedder(x).view(-1)
                 node_embd = torch.cat([agent_node_emb, agent_state_emb], dim = -1)
+                if t_embd is not None:
+                    t_vec = t_embd.view(-1)
+                    if t_vec.shape[0] != self.node_embd_dim:
+                        t_vec = t_vec[-self.node_embd_dim:]  # tolerate [1, D] etc.
+                    node_embd = node_embd + self.t_proj_action(t_vec)
 
             else:
                 _index = index  -  self.num_agent_nodes # aget nodes always first nc implementation
@@ -169,7 +174,7 @@ class InstantPolicy(nn.Module):
             connection_matrix[source_node_idx, dest_node_idx] = 1
             edge_emb = None 
             if edge.type is EdgeType.AGENT_COND_AGENT:
-                edge_emb = self.agent_cond_agent_edge_emb(0) # think about this
+                edge_emb = self.agent_cond_agent_edge_emb(torch.tensor([0], device=self.device)).squeeze(0)
             else:
                 source_pos = torch.tensor(edge.source.pos, device=self.device, dtype=torch.float32)
                 dest_pos = torch.tensor(edge.dest.pos, device=self.device, dtype=torch.float32)
@@ -229,6 +234,7 @@ class InstantPolicy(nn.Module):
                 curr_obs, # oij
                 provided_demos, # {d_ij}, i = [1:L], [1:N]
                 noisy_actions, # T * 10 
+                diffusion_timestep_embedding
                 ):
 
         # pass obs t
@@ -301,7 +307,9 @@ class InstantPolicy(nn.Module):
         context_graph_edges = context_graph.get_temporal_edges()
         context_graph_edge_features = dict()
         context_graph_edge_index_dict = dict()
-        context_connection_matrix = np.zeros((len(context_graph_nodes), len(context_graph_nodes)))
+        context_connection_matrix = torch.zeros(
+            (len(context_graph_nodes), len(context_graph_nodes)), device=self.device
+        )
         for edge in context_graph_edges:
             source_node_idx = context_graph_node_idx_dict_by_node[edge.source]
             dest_node_idx = context_graph_node_idx_dict_by_node[edge.dest]
@@ -329,10 +337,20 @@ class InstantPolicy(nn.Module):
 
         # use phi to update node features for current graph agent nodes 
         phi_agent_node_emb = phi[NodeType.AGENT]
-        for curr_agent_node in curr_graph_agent_node_embeddings_dict.keys():
-            node_idx = context_graph_node_idx_dict_by_node[curr_agent_node]
-            type_idx = curr_graph_node_idx_dict_by_type[NodeType.AGENT].index(node_idx)
-            curr_graph_agent_node_embeddings_dict[curr_agent_node] = phi_agent_node_emb[type_idx]
+
+        # messy
+        # for curr_agent_node in curr_graph_agent_node_embeddings_dict.keys():
+        #     node_idx = context_graph_node_idx_dict_by_node[curr_agent_node]
+        #     type_idx = curr_graph_node_idx_dict_by_type[NodeType.AGENT].index(node_idx)
+        #     curr_graph_agent_node_embeddings_dict[curr_agent_node] = phi_agent_node_emb[type_idx]
+
+        # cleaner
+        agent_nodes_in_phi = [n for n in context_graph_nodes if n.type is NodeType.AGENT]
+        phi_idx = {node: i for i, node in enumerate(agent_nodes_in_phi)}
+
+        for node in curr_graph_agent_node_embeddings_dict.keys():
+            i = phi_idx[node]  # same node object
+            curr_graph_agent_node_embeddings_dict[node] = phi_agent_node_emb[i]
 
 
         # here will be pretty complex but whats happening is :
@@ -353,7 +371,7 @@ class InstantPolicy(nn.Module):
             #  since action graph made from current graph, we will use the same object features
             features = curr_features
 
-            predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_E, edge_idx_dict, predicted_graph_A = self._embed_local_graph(predicted_graph, curr_features)
+            predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_E, edge_idx_dict, predicted_graph_A = self._embed_local_graph(predicted_graph, curr_features, diffusion_timestep_embedding)
             rho_action = self.rho(predicted_graph_X, predicted_graph_node_idx_dict_by_type, predicted_graph_A, predicted_graph_E, edge_idx_dict)
             
 
@@ -386,7 +404,9 @@ class InstantPolicy(nn.Module):
             action_edges = action_graph.get_action_edges()
             action_graph_edge_features = dict()
             action_graph_edge_index_dict = dict()
-            action_connection_matrix = np.zeros((len(context_graph_nodes), len(context_graph_nodes)))
+            num_action_nodes = len(action_nodes)
+            action_connection_matrix = torch.zeros((num_action_nodes, num_action_nodes), device=self.device)
+
             for edge in action_edges:
                 source_node_idx = action_index_dict_by_nodes[edge.source]
                 dest_node_idx = action_index_dict_by_nodes[edge.dest]
@@ -442,14 +462,14 @@ class InstantPolicy(nn.Module):
         forward_movement = np.dot(movement, forward_dir)
 
         # then get state change
-        state_change = 1 if state_change > 0 else -1 
+        state_change = 1 if state_change > 0.5 else 0 
         theta_deg = torch.rad2deg(theta)
 
         # state_change is a
         for player_state in PlayerState:
             if state_change == player_state.value:
                 state_change = player_state 
-                continue
+
         assert type(state_change) == PlayerState
 
         return Action(forward_movement=forward_movement, rotation_deg=theta_deg, state_change=state_change)

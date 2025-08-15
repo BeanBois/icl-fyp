@@ -6,6 +6,23 @@ import numpy as np
 # TODO : standardise action mode to large
 
 # TODO : might need to fix how actions are being clamped so cooked lol
+import math
+
+def sinusoidal_embedding(timesteps, dim):
+    """
+    Create sinusoidal timestep embeddings.
+    Args:
+        timesteps: [B] tensor of timesteps
+        dim: embedding dimension
+    Returns:
+        [B, dim] tensor
+    """
+    half_dim = dim // 2
+    emb_scale = math.log(10000) / (half_dim - 1)
+    emb = torch.exp(torch.arange(half_dim, device=timesteps.device) * -emb_scale)
+    emb = timesteps[:, None].float() * emb[None, :]
+    return torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
+
 class InstantPolicyAgent(nn.Module):
 
     def __init__(self,
@@ -54,6 +71,12 @@ class InstantPolicyAgent(nn.Module):
         self.max_flow_translation = max_flow_translation  # cm
         self.max_flow_rotation = torch.deg2rad(torch.tensor([max_flow_rotation], device=device))  # radians
 
+        self.t_embed_dim = self.node_embd_dim
+        self.t_embed_proj = nn.Sequential(
+            nn.Linear(self.t_embed_dim, self.node_embd_dim, device=self.device),
+            nn.SiLU(),
+            nn.Linear(self.node_embd_dim, self.node_embd_dim, device=self.device)
+        )
 
         self.pred_head_p = nn.Sequential(
             nn.Linear(self.hidden_dim, self.node_embd_dim, device=self.device),
@@ -73,23 +96,27 @@ class InstantPolicyAgent(nn.Module):
             nn.Linear(self.hidden_dim, self.node_embd_dim,device=self.device),
             nn.GELU(),
             nn.Linear(self.node_embd_dim,1,device=self.device),
-            nn.Tanh(),  # Output in [-1, 1] range for binary gripper actions
+            nn.Sigmoid(),  # Output in [0, 1] range for binary gripper actions
         )
     
     # idk what i am doing here 
     # but in the code they kinda just make se2 actions to [xt, yt, theta] 
 
     def forward(self,
-                   curr_obs,
-                   context,
-                   clean_actions):
-        batch_size = len(clean_actions)
-        timesteps = torch.randint(0, self.num_diffusion_steps, (batch_size,), device=self.device)
+                curr_obs,
+                context,
+                clean_actions):
+        B = 1  # always processing 1 sample
+        timesteps = torch.randint(0, self.num_diffusion_steps, (B,), device=self.device)
         
         # get noisy action
         noisy_actions, action_noise = self._get_noisy_actions(clean_actions, timesteps)
 
-        node_embs = self.policy(curr_obs, context, noisy_actions).to(self.device)
+        # Sinusoidal embedding + projection
+        sin_embed = sinusoidal_embedding(timesteps, self.t_embed_dim)
+        t_embed = self.t_embed_proj(sin_embed)  # [B, node_embd_dim]
+
+        node_embs = self.policy(curr_obs, context, noisy_actions, t_embed).to(self.device)
         T, num_nodes, hidden_dim = node_embs.shape
         flat_node_embs = node_embs.view(T * num_nodes, hidden_dim)
 
