@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from typing import List, Tuple, Dict
-from training_data_generator import TensorizedPseudoDemoGenerator
+from training_data_generator import PseudoDemoGenerator
 from utils import orthonormalize_2x2
 
 
@@ -25,13 +25,12 @@ class Trainer:
         self.agent = agent
         self.device = device 
         
-        self.data_generator = TensorizedPseudoDemoGenerator(
+        self.data_generator = PseudoDemoGenerator(
             device=device,
             num_demos= num_demos_for_context + 1, 
             min_num_waypoints= min_num_waypoints,
             max_num_waypoints= max_num_waypoints,
             demo_length= demo_length,
-            batch_size=batch_size,
         )
         
         self.agent_keypoint = None

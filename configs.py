@@ -9,7 +9,7 @@ from tasks2d import LousyPacmanPseudoMaxRot as  PSEUDO_MAX_ROTATION
 
 
 _type = 'vanilla' # | "control" | "PC_EMB" | "PC_EMB_hyperbolic"
-version = '4_4'
+version = '4_5'
 geo_version = '2'
 
 
@@ -53,7 +53,7 @@ CONFIGS = {
     'NUM_EPOCHS' : 20,
     'SAVE_MODEL' : True,
     'MODEL_FILE_PATH' :  f"instant_policy_{_type}_v{version}.pth",
-    'BATCH_SIZE' : 1,
+    'BATCH_SIZE' : 10,
 
     # TESTING CONFIGS
     'MAX_INFERENCE_ITER' : 100,
