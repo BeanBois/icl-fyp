@@ -37,8 +37,8 @@ CONFIGS = {
     'TRAINING_MAX_TRANSLATION' : (PSEUDO_SCREEN_HEIGHT**2 + PSEUDO_SCREEN_WIDTH**2)**2, # WIDTH^2 + HEIGHT^2 SQRT 
     'MAX_ROTATION_DEG' : 180,
 
-    'MAX_DISPLACEMENT_PER_STEP' : PSEUDO_MAX_TRANSLATION * 2, # params is vibes. since pseudo game is downsampled quite a bit
-    'MAX_DEGREE_PER_TURN' : PSEUDO_MAX_ROTATION * 2,
+    'MAX_DISPLACEMENT_PER_STEP' : PSEUDO_MAX_TRANSLATION, # params is vibes. since pseudo game is downsampled quite a bit
+    'MAX_DEGREE_PER_TURN' : PSEUDO_MAX_ROTATION,
 
     # PSEUDO-DEMO CONFIGS
     "MAX_NUM_WAYPOINTS" : 6,

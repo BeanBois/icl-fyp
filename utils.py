@@ -1,6 +1,11 @@
 import torch 
 
 
+def orthonormalize_2x2(R):
+    # Optional: make R a valid rotation (handles tiny numeric drift)
+    # R: [..., 2, 2]
+    U, _, Vt = torch.linalg.svd(R)
+    return U @ Vt
 
 # def recover_se2_action_noise(self, per_node_translation, per_node_rotation, per_node_gripper, agent_keypoints):
 #     """

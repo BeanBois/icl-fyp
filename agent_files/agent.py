@@ -140,7 +140,7 @@ class InstantPolicyAgent(nn.Module):
         # we can choose to normalise both action noise and predicted_per_node_noise but for now no need
         # predicted_per_node_noise in range {self.max_flow ... } and action_noise in range {self.max_trans} 
         # we essentially limit our denoising power for a more contorlled denoising process
-        return predicted_per_node_noise, action_noise
+        return predicted_per_node_noise, noisy_actions
     
     def predict(self,
             curr_obs,

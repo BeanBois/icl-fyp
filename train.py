@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from typing import List, Tuple, Dict
 from training_data_generator import TensorizedPseudoDemoGenerator
+from utils import orthonormalize_2x2
 
 
 # import agent
@@ -58,19 +59,19 @@ class Trainer:
             curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
             
             # Forward pass through agent - returns normalized predictions and normalized targets
-            predicted_per_node_noise_norm, action_noise_normalized = self.agent(
+            predicted_per_node_noise, noisy_actions = self.agent(
                 curr_obs, context, clean_actions
             ) 
             
             # Convert normalized target noise to per-node format for comparison
-            actual_pn_denoising_dir_norm = self.get_normalized_pnn_from_noise(
-                agent_keypoints, action_noise_normalized
+            actual_pn_denoising_dir = self.actions_to_per_node_target(
+                agent_keypoints, clean_actions, noisy_actions
             )
             
-            assert predicted_per_node_noise_norm.shape == actual_pn_denoising_dir_norm.shape
+            assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape
             
             # MSE loss between normalized predictions and normalized targets
-            loss = nn.MSELoss()(predicted_per_node_noise_norm, actual_pn_denoising_dir_norm)
+            loss = nn.MSELoss()(predicted_per_node_noise, actual_pn_denoising_dir)
             scaled_loss = loss / self.batch_size
             scaled_loss.backward()
             total_loss += loss.item()
@@ -79,116 +80,64 @@ class Trainer:
         self.optimizer.step()
         return total_loss / self.batch_size
     
-    def get_normalized_pnn_from_noise(self, agent_keypoints, action_noise_normalized):
+    def actions_to_per_node_target(
+        self,
+        agent_keypoints,       # [4, 2], NOT necessarily centered; we'll center here
+        noisy_actions,         # [T, 10] -> SE(2) (9) + state (1)
+        clean_actions,         # [T, 10] -> SE(2) (9) + state (1)
+        *, orthonormalize=True
+    ):
         """
-        Calculate per-node denoising directions from normalized action noise
-        
-        Args:
-            agent_keypoints: (4, 2) - current gripper keypoints [x, y]
-            action_noise_normalized: (L, 10) - normalized noisy actions
-        
+        Build per-node denoising targets for diffusion training.
+
         Returns:
-            denoising_directions_normalized: (L, 4, 5) - normalized per node denoising directions
+            targets: [T, 4, 5] with channels:
+                    [trans_x, trans_y, rot_x, rot_y, gripper_delta]
+                    = (clean - noisy) components broadcasted over 4 keypoints.
         """
-        L = action_noise_normalized.shape[0]
-        
-        # First denormalize the action noise to get actual physical units
-        action_noise_physical = self.denormalize_action_noise(action_noise_normalized)
-        
-        # Calculate per-node noise in physical units
-        denoising_directions_physical = self.get_pnn_from_noise_physical(
-            agent_keypoints, action_noise_physical
-        )
-        
-        # Normalize the per-node directions for loss computation
-        denoising_directions_normalized = self.normalize_per_node_directions(
-            denoising_directions_physical
-        )
-        
-        return denoising_directions_normalized
-    
-    def denormalize_action_noise(self, action_noise_normalized):
-        """Convert normalized action noise back to physical units"""
-        # Split the normalized noise
-        se2_noise_norm = action_noise_normalized[:, :-1]  # First 9 components
-        gripper_noise_norm = action_noise_normalized[:, -1:]  # Last component
-        
-        # Denormalize SE(2) components (this is simplified - you may need more sophisticated approach)
-        # For SE(2) matrices, we need to carefully denormalize each component
-        se2_noise_physical = se2_noise_norm * self.max_flow_translation  # Simplified scaling
-        
-        # Denormalize gripper (convert from [0,1] back to [-1,1] range)
-        gripper_noise_physical = gripper_noise_norm * 2.0 - 1.0
-        
-        return torch.cat([se2_noise_physical, gripper_noise_physical], dim=-1)
-    
-    def normalize_per_node_directions(self, denoising_directions_physical):
-        """Normalize per-node denoising directions to [-1,1] range"""
-        L, num_nodes, _ = denoising_directions_physical.shape
-        
-        # Split components
-        translation_shifts = denoising_directions_physical[:, :, :2]  # (L, 4, 2)
-        rotation_shifts = denoising_directions_physical[:, :, 2:4]    # (L, 4, 2)
-        gripper_shifts = denoising_directions_physical[:, :, 4:]      # (L, 4, 1)
-        
-        # Normalize each component independently
-        translation_norm = torch.clamp(translation_shifts / self.max_flow_translation, -1.0, 1.0)
-        rotation_norm = torch.clamp(rotation_shifts / self.max_flow_rotation, -1.0, 1.0)
-        gripper_norm = torch.clamp((gripper_shifts + 1.0) / 2.0, 0.0, 1.0)  # [-1,1] to [0,1]
-        
-        return torch.cat([translation_norm, rotation_norm, gripper_norm], dim=-1)
-    
-    def get_pnn_from_noise_physical(self, agent_keypoints, action_noise):
-        """
-        Calculate per-node denoising directions from noisy actions in physical units
-        
-        Args:
-            agent_keypoints: (4, 2) - current gripper keypoints [x, y]
-            action_noise: (L, 10) - noisy cumulative actions [SE(2) + state] in physical units
-        
-        Returns:
-            denoising_directions: (L, 4, 5) - per node denoising directions in physical units
-        """
-        L = action_noise.shape[0]
-        
-        # Original keypoints repeated for each action
-        original_keypoints = agent_keypoints.unsqueeze(0).repeat(L, 1, 1)  # (L, 4, 2)
-        
-        # Extract SE(2) transformations (first 9 dims)
-        se2_noise = action_noise[:, :9].view(L, 3, 3)  # (L, 3, 3)
-        state_noise = action_noise[:, 9:10]  # (L, 1)
-        
-        # Convert to homogeneous coordinates
-        ones = torch.ones(L, 4, 1, device=agent_keypoints.device, dtype=agent_keypoints.dtype)
-        keypoints_homo = torch.cat([original_keypoints, ones], dim=-1)  # (L, 4, 3)
-        
-        # Apply SE(2) transformations
-        transformed_keypoints_homo = torch.bmm(keypoints_homo, se2_noise.transpose(-2, -1))
-        transformed_keypoints = transformed_keypoints_homo[:, :, :2]  # (L, 4, 2)
-        
-        # Calculate translation shifts (actual displacement)
-        translation_shifts = transformed_keypoints - original_keypoints  # (L, 4, 2)
-        
-        # Calculate rotation components (for denoising)
-        # Extract rotation part of SE(2) matrix
-        rotation_matrices = se2_noise[:, :2, :2]  # (L, 2, 2)
-        
-        # Calculate rotation-induced shifts for each keypoint
-        centered_keypoints = original_keypoints - original_keypoints.mean(dim=1, keepdim=True)
-        rotated_centered = torch.bmm(centered_keypoints, rotation_matrices.transpose(-2, -1))
-        rotation_shifts = rotated_centered - centered_keypoints  # (L, 4, 2)
-        
-        # Repeat gripper state for each keypoint
-        gripper_shifts = state_noise.unsqueeze(1).repeat(1, 4, 1)  # (L, 4, 1)
-        
-        # Combine all denoising directions: [trans_x, trans_y, rot_x, rot_y, gripper]
-        denoising_directions = torch.cat([
-            translation_shifts,      # (L, 4, 2) - [delta_x, delta_y]
-            rotation_shifts,         # (L, 4, 2) - [delta_rot_x, delta_rot_y] 
-            gripper_shifts          # (L, 4, 1) - [delta_gripper]
-        ], dim=-1)  # (L, 4, 5)
-        
-        return denoising_directions
+        device = noisy_actions.device
+        dtype  = noisy_actions.dtype
+
+        T = noisy_actions.shape[0]
+
+        # --- unpack actions ---
+        # SE(2) as 3x3 homogeneous matrices + scalar gripper state
+        Rk  = noisy_actions[:, :9].view(T, 3, 3)[:, :2, :2]   # [T, 2, 2]
+        tk  = noisy_actions[:, :9].view(T, 3, 3)[:, :2,  2]   # [T, 2]
+        agk = noisy_actions[:, 9:10]                          # [T, 1]
+
+        R0  = clean_actions[:, :9].view(T, 3, 3)[:, :2, :2]   # [T, 2, 2]
+        t0  = clean_actions[:, :9].view(T, 3, 3)[:, :2,  2]   # [T, 2]
+        ag0 = clean_actions[:, 9:10]                          # [T, 1]
+
+        if orthonormalize:
+            Rk = orthonormalize_2x2(Rk)
+            R0 = orthonormalize_2x2(R0)
+
+        # --- center keypoints (COM at origin) for rotation flow ---
+        # agent_keypoints: [4,2]
+        kp = agent_keypoints.to(device=device, dtype=dtype)
+        kp_centered = kp - kp.mean(dim=0, keepdim=True)   # [4,2]
+
+        # --- translation delta (broadcast to all nodes) ---
+        dt = (t0 - tk)                                    # [T,2]
+        trans_flow = dt[:, None, :].expand(T, kp.shape[0], 2)   # [T,4,2]
+
+        # --- rotation flow: (R0 - Rk) acting on centered keypoints ---
+        # rot_flow_i = R0*kp - Rk*kp  (applied per timestep to all 4 kps)
+        # Use (kp @ R^T) for row-vector convention
+        rot_flow = torch.matmul(
+            kp_centered[None, :, :],                      # [1,4,2]
+            (R0.transpose(-2, -1) - Rk.transpose(-2, -1)) # [T,2,2]
+        )                                                 # [T,4,2]
+
+        # --- gripper delta (same for all nodes) = clean - noisy ---
+        dag = (ag0 - agk)                                 # [T,1]
+        g = dag[:, None, :].expand(T, kp.shape[0], 1)     # [T,4,1]
+
+        # --- concat into [T,4,5]: [trans_x, trans_y, rot_x, rot_y, gripper_delta] ---
+        targets = torch.cat([trans_flow, rot_flow, g], dim=-1)  # [T,4,5]
+        return targets
     
     def train_epoch(self, num_steps_per_epoch = 100):
         total_loss = 0.0
@@ -215,7 +164,16 @@ class Trainer:
                     param_group['lr'] *= 0.99
                     
             avg_losses.append(avg_loss)
-            
+            # Save checkpoint every 10 epochs
+            if (epoch + 1) % 10 == 0 and save_model:
+                checkpoint_path = save_path.replace('.pth', f'_epoch_{epoch+1}.pth')
+                torch.save({
+                    'epoch': epoch,
+                    'model_state_dict': self.agent.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'loss': avg_loss,
+                }, checkpoint_path)
+                print(f"Checkpoint saved: {checkpoint_path}")
         if save_model:
             torch.save(self.agent.state_dict(), save_path)
         self.plot_losses(avg_losses, num_steps_per_epoch)
