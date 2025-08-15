@@ -284,60 +284,162 @@ class InstantPolicyAgent(nn.Module):
         return self._get_noisy_actions_large(clean_actions, timesteps)
         # else:
         # return self._get_noisy_actions_small(clean_actions, timesteps)
+    ########## LARGE ACTION NOISE ADDING AUX ##########################
     
+    #### NEW FIX ####
     def _get_noisy_actions_large(self, clean_actions, timesteps):
         """
-        Large displacement: Add noise directly in SE(2) space with proper projection
+        Large displacement: Add noise directly in SE(2) space with proper manifold projection
+        Following the paper's guidance for "bigger displacements"
         """
+        batch_size = clean_actions.shape[0]
         binary_actions = clean_actions[..., -1]
         SE2_clean_flat = clean_actions[..., :-1]
-        SE2_clean = SE2_clean_flat.view(-1,3,3)
+        SE2_clean = SE2_clean_flat.view(batch_size, 3, 3)
         
-        # Sample noise in se(2) tangent space (this is key!)
-        batch_size = SE2_clean.shape[0]
-        se2_noise = torch.randn(batch_size, 3, device=self.device)  # [ρx, ρy, θ]
+        # Sample noise directly as SE(2) transformations (not in tangent space!)
+        # This avoids the singularity issues of SE(2) ↔ se(2) conversion
         
-        # TODO : ACTIONS SCALING HERE 
-        # Scale noise for large displacements
-        se2_noise[..., :2] *= 10  # Large translation noise (10px)
-        se2_noise[..., 2] *= 0.5   # Large rotation noise (≈30°)
+        # 1. Sample translation noise
+        translation_noise = torch.randn(batch_size, 2, device=self.device) * self.max_flow_translation
         
-        # Convert noise to SE(2) matrices using matrix exponential
-        SE2_noise = self._se2_to_SE2(se2_noise)  # [batch, 3, 3]
+        # 2. Sample rotation noise (directly as angles, avoiding tangent space)
+        rotation_noise_angles = torch.randn(batch_size, device=self.device) * self.max_flow_rotation
         
-        # Apply diffusion schedule
+        # 3. Construct SE(2) noise matrices directly
+        cos_theta = torch.cos(rotation_noise_angles)
+        sin_theta = torch.sin(rotation_noise_angles)
+        
+        SE2_noise = torch.zeros(batch_size, 3, 3, device=self.device, dtype=SE2_clean.dtype)
+        SE2_noise[..., 0, 0] = cos_theta
+        SE2_noise[..., 0, 1] = -sin_theta
+        SE2_noise[..., 1, 0] = sin_theta
+        SE2_noise[..., 1, 1] = cos_theta
+        SE2_noise[..., :2, 2] = translation_noise
+        SE2_noise[..., 2, 2] = 1.0
+        
+        # 4. Apply diffusion schedule using direct matrix operations
         alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
-        
-        # For SE(2), we compose transformations: T_noisy = T_clean @ exp(√(1-α) * ξ)
-        # Simplified as: T_noisy = √α * T_clean + √(1-α) * T_noise_scaled
         sqrt_alpha = torch.sqrt(alpha_cumprod_t)
         sqrt_one_minus_alpha = torch.sqrt(1 - alpha_cumprod_t)
         
-        # Scale the noise transformation
-        SE2_noise_scaled = torch.eye(3, device=self.device).unsqueeze(0) + sqrt_one_minus_alpha * (SE2_noise - torch.eye(3, device=self.device).unsqueeze(0))
+        # 5. For large displacements: direct interpolation + manifold projection
+        # This is the key difference from the small displacement method
+        SE2_noisy_raw = sqrt_alpha * SE2_clean + sqrt_one_minus_alpha * SE2_noise
         
-        # Compose transformations (this is the proper SE(2) way)
-        SE2_noisy = sqrt_alpha * SE2_clean + sqrt_one_minus_alpha * SE2_noise
-        
-        # Project back to SE(2) manifold (ensure rotation matrix constraints)
-        SE2_noisy = self._project_to_SE2_manifold(SE2_noisy)
-        SE2_noisy_flat = SE2_noisy.view(-1, 9)
+        # 6. Project back to SE(2) manifold (this is essential!)
+        SE2_noisy = self._project_to_SE2_manifold(SE2_noisy_raw)
+        SE2_noisy_flat = SE2_noisy.view(batch_size, 9)
         
         # Handle binary actions
         binary_noise = torch.randn_like(binary_actions)
-        alpha_cumprod_binary = self.alpha_cumprod[timesteps].view(-1,)
-        noisy_binary = torch.sqrt(alpha_cumprod_binary) * binary_actions + torch.sqrt(1 - alpha_cumprod_binary) * binary_noise
+        alpha_cumprod_binary = self.alpha_cumprod[timesteps]
+        sqrt_alpha_bin = torch.sqrt(alpha_cumprod_binary)
+        sqrt_one_minus_alpha_bin = torch.sqrt(1 - alpha_cumprod_binary)
+        noisy_binary = sqrt_alpha_bin * binary_actions + sqrt_one_minus_alpha_bin * binary_noise
         
         # Combine results
-        noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary.view(-1,1)], dim=-1)
+        noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary.view(-1, 1)], dim=-1)
         
-        # The noise is the difference in action space (for training target)
-        moving_noise = SE2_noisy_flat - SE2_clean_flat
-        full_noise = torch.cat([moving_noise, binary_noise.view(-1,1)], dim=-1)
+        # The noise is the difference in SE(2) space (for training target)
+        SE2_noise_actual = SE2_noisy_flat - SE2_clean_flat
+        full_noise = torch.cat([SE2_noise_actual, binary_noise.view(-1, 1)], dim=-1)
         
         return noisy_actions, full_noise
+    
 
     def _project_to_SE2_manifold(self, SE2_matrices):
+        """
+        Project matrices back to valid SE(2) manifold using SVD
+        This is the crucial step for the large displacement method
+        """
+        batch_size = SE2_matrices.shape[0]
+        device = SE2_matrices.device
+        dtype = SE2_matrices.dtype
+        
+        # Initialize output
+        projected = torch.zeros_like(SE2_matrices)
+        
+        # Extract the 2x2 rotation part
+        R_noisy = SE2_matrices[..., :2, :2]  # [batch, 2, 2]
+        
+        # Project to SO(2) using SVD (closest rotation matrix)
+        U, S, Vt = torch.linalg.svd(R_noisy)
+        R_projected = U @ Vt  # [batch, 2, 2]
+        
+        # Ensure proper rotation (determinant = +1, not -1)
+        det = torch.det(R_projected)  # [batch]
+        
+        # For determinants < 0, flip the last column of Vt
+        flip_mask = det < 0
+        if torch.any(flip_mask):
+            Vt_corrected = Vt.clone()
+            Vt_corrected[flip_mask, 1, :] *= -1  # Flip second row of Vt
+            R_projected[flip_mask] = U[flip_mask] @ Vt_corrected[flip_mask]
+        
+        # Keep translation part unchanged
+        t = SE2_matrices[..., :2, 2]  # [batch, 2]
+        
+        # Reconstruct valid SE(2) matrices
+        projected[..., :2, :2] = R_projected
+        projected[..., :2, 2] = t
+        projected[..., 2, :2] = 0.0
+        projected[..., 2, 2] = 1.0
+        
+        return projected
+    
+
+    #### OLD ####
+    # def _get_noisy_actions_large(self, clean_actions, timesteps):
+    #     """
+    #     Large displacement: Add noise directly in SE(2) space with proper projection
+    #     """
+    #     binary_actions = clean_actions[..., -1]
+    #     SE2_clean_flat = clean_actions[..., :-1]
+    #     SE2_clean = SE2_clean_flat.view(-1,3,3)
+        
+    #     # Sample noise in se(2) tangent space (this is key!)
+    #     batch_size = SE2_clean.shape[0]
+    #     se2_noise = torch.randn(batch_size, 3, device=self.device)  # [ρx, ρy, θ]
+        
+        
+    #     # Convert noise to SE(2) matrices using matrix exponential
+    #     SE2_noise = self._se2_to_SE2(se2_noise)  # [batch, 3, 3]
+        
+    #     # Apply diffusion schedule
+    #     alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
+        
+    #     # For SE(2), we compose transformations: T_noisy = T_clean @ exp(√(1-α) * ξ)
+    #     # Simplified as: T_noisy = √α * T_clean + √(1-α) * T_noise_scaled
+    #     sqrt_alpha = torch.sqrt(alpha_cumprod_t)
+    #     sqrt_one_minus_alpha = torch.sqrt(1 - alpha_cumprod_t)
+        
+    #     # Scale the noise transformation
+    #     SE2_noise_scaled = torch.eye(3, device=self.device).unsqueeze(0) + sqrt_one_minus_alpha * (SE2_noise - torch.eye(3, device=self.device).unsqueeze(0))
+        
+    #     # Compose transformations (this is the proper SE(2) way)
+    #     SE2_noisy = sqrt_alpha * SE2_clean + sqrt_one_minus_alpha * SE2_noise
+        
+    #     # Project back to SE(2) manifold (ensure rotation matrix constraints)
+    #     SE2_noisy = self._project_to_SE2_manifold(SE2_noisy)
+    #     SE2_noisy_flat = SE2_noisy.view(-1, 9)
+        
+    #     # Handle binary actions
+    #     binary_noise = torch.randn_like(binary_actions)
+    #     alpha_cumprod_binary = self.alpha_cumprod[timesteps].view(-1,)
+    #     noisy_binary = torch.sqrt(alpha_cumprod_binary) * binary_actions + torch.sqrt(1 - alpha_cumprod_binary) * binary_noise
+        
+    #     # Combine results
+    #     noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary.view(-1,1)], dim=-1)
+        
+    #     # The noise is the difference in action space (for training target)
+    #     moving_noise = SE2_noisy_flat - SE2_clean_flat
+    #     full_noise = torch.cat([moving_noise, binary_noise.view(-1,1)], dim=-1)
+        
+    #     return noisy_actions, full_noise
+
+
+    # def _project_to_SE2_manifold(self, SE2_matrices):
         """
         Project matrices back to valid SE(2) manifold
         """
@@ -363,6 +465,76 @@ class InstantPolicyAgent(nn.Module):
         
         return projected
     
+    ### Alternative ### 
+    def _sample_SE2_noise_directly(self, batch_size):
+        """
+        Helper function to sample SE(2) transformations directly
+        Avoids tangent space entirely for large displacements
+        """
+        # Sample translation components
+        translation = torch.randn(batch_size, 2, device=self.device) * self.max_flow_translation
+        
+        # Sample rotation angles uniformly (avoiding concentration around 0)
+        # For large displacements, we want uniform distribution over [-π, π]
+        rotation_angles = (torch.rand(batch_size, device=self.device) - 0.5) * 2 * self.max_flow_rotation
+        
+        # Construct SE(2) matrices
+        cos_theta = torch.cos(rotation_angles)
+        sin_theta = torch.sin(rotation_angles)
+        
+        SE2_noise = torch.zeros(batch_size, 3, 3, device=self.device)
+        SE2_noise[..., 0, 0] = cos_theta
+        SE2_noise[..., 0, 1] = -sin_theta
+        SE2_noise[..., 1, 0] = sin_theta
+        SE2_noise[..., 1, 1] = cos_theta
+        SE2_noise[..., :2, 2] = translation
+        SE2_noise[..., 2, 2] = 1.0
+        
+        return SE2_noise
+
+    # Alternative version with even more direct manifold operations
+    def _get_noisy_actions_large_alternative(self, clean_actions, timesteps):
+        """
+        Alternative large displacement method using SE(2) group operations
+        Even more faithful to manifold structure
+        """
+        batch_size = clean_actions.shape[0]
+        binary_actions = clean_actions[..., -1]
+        SE2_clean_flat = clean_actions[..., :-1]
+        SE2_clean = SE2_clean_flat.view(batch_size, 3, 3)
+        
+        # Sample noise as SE(2) group elements
+        SE2_noise = self._sample_SE2_noise_directly(batch_size)
+        
+        # Apply diffusion schedule
+        alpha_cumprod_t = self.alpha_cumprod[timesteps].view(-1, 1, 1)
+        sqrt_alpha = torch.sqrt(alpha_cumprod_t)
+        sqrt_one_minus_alpha = torch.sqrt(1 - alpha_cumprod_t)
+        
+        # Option 1: Linear interpolation + projection (simpler)
+        SE2_noisy_raw = sqrt_alpha * SE2_clean + sqrt_one_minus_alpha * SE2_noise
+        SE2_noisy = self._project_to_SE2_manifold(SE2_noisy_raw)
+        
+        # Option 2: Geodesic interpolation (more principled but complex)
+        # SE2_noisy = self._geodesic_interpolation(SE2_clean, SE2_noise, sqrt_one_minus_alpha.squeeze(-1))
+        
+        SE2_noisy_flat = SE2_noisy.view(batch_size, 9)
+        
+        # Handle binary actions
+        binary_noise = torch.randn_like(binary_actions)
+        alpha_cumprod_binary = self.alpha_cumprod[timesteps]
+        sqrt_alpha_bin = torch.sqrt(alpha_cumprod_binary)
+        sqrt_one_minus_alpha_bin = torch.sqrt(1 - alpha_cumprod_binary)
+        noisy_binary = sqrt_alpha_bin * binary_actions + sqrt_one_minus_alpha_bin * binary_noise
+        
+        # Combine results
+        noisy_actions = torch.cat([SE2_noisy_flat, noisy_binary.view(-1, 1)], dim=-1)
+        
+        # The noise is the difference (this is what the network learns to predict)
+        SE2_noise_actual = SE2_noisy_flat - SE2_clean_flat
+        full_noise = torch.cat([SE2_noise_actual, binary_noise.view(-1, 1)], dim=-1)
+        
+        return noisy_actions, full_noise
     # unused 
     # def _get_noisy_actions_small(self, clean_actions, timesteps):
     #     """
