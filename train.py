@@ -65,7 +65,7 @@ class Trainer:
             
             # Convert normalized target noise to per-node format for comparison
             actual_pn_denoising_dir = self.actions_to_per_node_target(
-                agent_keypoints, clean_actions, noisy_actions
+                agent_keypoints, noisy_actions, clean_actions
             )
             
             assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape
