@@ -119,22 +119,28 @@ class InstantPolicyAgent(nn.Module):
         node_embs = self.policy(curr_obs, context, noisy_actions, t_embed).to(self.device)
         T, num_nodes, hidden_dim = node_embs.shape
         flat_node_embs = node_embs.view(T * num_nodes, hidden_dim)
-
+        
         # Predict normalized noise components (outputs are already in [-1,1] due to Tanh/Sigmoid)
         flat_translation_noise_norm = self.pred_head_p(flat_node_embs).to(self.device)    # [-1, 1] 
         flat_rotation_noise_norm = self.pred_head_rot(flat_node_embs).to(self.device)     # [-1, 1] 
         flat_gripper_noise_norm = self.pred_head_g(flat_node_embs).to(self.device)       # [-1, 1]
 
-        # Denormalize the predictions to actual noise scale
-        flat_translation_noise = self._denormalize_translation_noise(flat_translation_noise_norm)
-        flat_rotation_noise = self._denormalize_rotation_noise(flat_rotation_noise_norm)
-        flat_gripper_noise = self._denormalize_gripper_noise(flat_gripper_noise_norm)
-        
-        per_node_translation = flat_translation_noise.view(T, num_nodes, 2)
-        per_node_rotation = flat_rotation_noise.view(T, num_nodes, 2)        
-        per_node_gripper = flat_gripper_noise.view(T, num_nodes, 1)
+        per_node_translation = flat_translation_noise_norm.view(T, num_nodes, 2)
+        per_node_rotation = flat_rotation_noise_norm.view(T, num_nodes, 2)        
+        per_node_gripper = flat_gripper_noise_norm.view(T, num_nodes, 1)
 
-        # Combine predicted noise
+
+        # # Denormalize the predictions to actual noise scale
+        # flat_translation_noise = self._denormalize_translation_noise(flat_translation_noise_norm)
+        # flat_rotation_noise = self._denormalize_rotation_noise(flat_rotation_noise_norm)
+        # flat_gripper_noise = self._denormalize_gripper_noise(flat_gripper_noise_norm)
+        
+        # per_node_translation = flat_translation_noise.view(T, num_nodes, 2)
+        # per_node_rotation = flat_rotation_noise.view(T, num_nodes, 2)        
+        # per_node_gripper = flat_gripper_noise.view(T, num_nodes, 1)
+
+            # Combine predicted noise
+
         predicted_per_node_noise = torch.cat([per_node_translation, per_node_rotation, per_node_gripper], dim=-1)
     
         # we can choose to normalise both action noise and predicted_per_node_noise but for now no need

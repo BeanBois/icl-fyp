@@ -46,6 +46,50 @@ class Trainer:
         self.max_flow_translation = agent.max_flow_translation
         self.max_flow_rotation = agent.max_flow_rotation
         
+
+    def train_step(self):
+        self.optimizer.zero_grad()
+        total_loss = 0.0
+        
+        # Get batch of training data
+        curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
+        agent_keypoints = self.data_generator.get_agent_keypoints()
+        
+        # Process each sample in the batch
+        for i in range(self.batch_size):
+            curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
+            
+            # # Forward pass through agent - returns normalized predictions and normalized targets
+            # predicted_per_node_noise, noisy_actions = self.agent(
+            #     curr_obs, context, clean_actions
+            # ) 
+
+            # Convert normalized target noise to per-node format for comparison
+            # actual_pn_denoising_dir = self.actions_to_per_node_target(
+            #     agent_keypoints, noisy_actions, clean_actions
+            # )
+            # Forward pass through agent - returns normalized predictions and normalized targets
+            predicted_per_node_noise_norm, noisy_actions = self.agent(
+                curr_obs, context, clean_actions
+            ) 
+
+            actual_pn_denoising_dir_norm, = self.actions_to_per_node_target_normalised(
+                agent_keypoints, noisy_actions, clean_actions, agent.max_flow_translation, agent.max_flow_rotation
+            )
+            
+            
+            assert predicted_per_node_noise_norm.shape == actual_pn_denoising_dir_norm.shape
+            
+            # MSE loss between normalized predictions and normalized targets
+            loss = nn.MSELoss()(predicted_per_node_noise_norm, actual_pn_denoising_dir_norm)
+            scaled_loss = loss / self.batch_size
+            scaled_loss.backward()
+            total_loss += loss.item()
+        
+        # Single optimizer step after accumulating gradients from all batch samples
+        self.optimizer.step()
+        return total_loss / self.batch_size
+        
     def train_step(self):
         self.optimizer.zero_grad()
         total_loss = 0.0
@@ -62,10 +106,10 @@ class Trainer:
             predicted_per_node_noise, noisy_actions = self.agent(
                 curr_obs, context, clean_actions
             ) 
-            
+
             # Convert normalized target noise to per-node format for comparison
             actual_pn_denoising_dir = self.actions_to_per_node_target(
-                agent_keypoints, noisy_actions, clean_actions
+                agent_keypoints, noisy_actions, clean_actions, agent.max_flow_translation, agent.max_flow_rotation
             )
             
             assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape
@@ -80,6 +124,7 @@ class Trainer:
         self.optimizer.step()
         return total_loss / self.batch_size
     
+
     def actions_to_per_node_target(
         self,
         agent_keypoints,       # [4, 2], NOT necessarily centered; we'll center here
@@ -117,7 +162,7 @@ class Trainer:
         # --- center keypoints (COM at origin) for rotation flow ---
         # agent_keypoints: [4,2]
         kp = agent_keypoints.to(device=device, dtype=dtype)
-        kp_centered = kp - kp.mean(dim=0, keepdim=True)   # [4,2]
+        kp_centered = kp 
 
         # --- translation delta (broadcast to all nodes) ---
         dt = (t0 - tk)                                    # [T,2]
@@ -137,6 +182,81 @@ class Trainer:
 
         # --- concat into [T,4,5]: [trans_x, trans_y, rot_x, rot_y, gripper_delta] ---
         targets = torch.cat([trans_flow, rot_flow, g], dim=-1)  # [T,4,5]
+        return targets
+    
+    def actions_to_per_node_target_normalised(
+        self,
+        agent_keypoints,       # [4, 2], NOT necessarily centered; we'll center here
+        noisy_actions,         # [T, 10] -> SE(2) (9) + state (1)
+        clean_actions,
+        trans_cap_m,
+        theta_max_rad,
+        eps = 1e-8,         # [T, 10] -> SE(2) (9) + state (1)
+        *, orthonormalize=True
+    ):
+        """
+        Build per-node denoising targets for diffusion training.
+
+        Returns:
+            targets: [T, 4, 5] with channels:
+                    [trans_x, trans_y, rot_x, rot_y, gripper_delta]
+                    = (clean - noisy) components broadcasted over 4 keypoints.
+        """
+        device = noisy_actions.device
+        dtype  = noisy_actions.dtype
+
+        T = noisy_actions.shape[0]
+
+        # --- unpack actions ---
+        # SE(2) as 3x3 homogeneous matrices + scalar gripper state
+        Rk  = noisy_actions[:, :9].view(T, 3, 3)[:, :2, :2]   # [T, 2, 2]
+        tk  = noisy_actions[:, :9].view(T, 3, 3)[:, :2,  2]   # [T, 2]
+        agk = noisy_actions[:, 9:10]                          # [T, 1]
+
+        R0  = clean_actions[:, :9].view(T, 3, 3)[:, :2, :2]   # [T, 2, 2]
+        t0  = clean_actions[:, :9].view(T, 3, 3)[:, :2,  2]   # [T, 2]
+        ag0 = clean_actions[:, 9:10]                          # [T, 1]
+
+        if orthonormalize:
+            Rk = orthonormalize_2x2(Rk)
+            R0 = orthonormalize_2x2(R0)
+
+        # --- center keypoints (COM at origin) for rotation flow ---
+        # agent_keypoints: [4,2]
+        kp = agent_keypoints.to(device=device, dtype=dtype)
+        kp_centered = kp 
+        kp_r = kp_centered.norm(dim=-1, keepdim=True).clamp_min(eps) 
+
+        # --- translation delta (broadcast to all nodes) ---
+        dt = (t0 - tk)                                    # [T,2]
+        trans_flow = dt[:, None, :].expand(T, kp.shape[0], 2)   # [T,4,2]
+
+        # --- rotation flow: (R0 - Rk) acting on centered keypoints ---
+        # rot_flow_i = R0*kp - Rk*kp  (applied per timestep to all 4 kps)
+        # Use (kp @ R^T) for row-vector convention
+        rot_flow = torch.matmul(
+            kp_centered[None, :, :],                      # [1,4,2]
+            (R0.transpose(-2, -1) - Rk.transpose(-2, -1)) # [T,2,2]
+        )                                                 # [T,4,2]
+
+        # --- gripper delta (same for all nodes) = clean - noisy ---
+        dag = (ag0 - agk)                                 # [T,1]
+        g = dag[:, None, :].expand(T, kp.shape[0], 1)     # [T,4,1]
+        # --- CAP & NORMALIZE ---
+        # 1) Translation: cap & normalize by a single scalar (meters)
+        trans_cap = torch.as_tensor(trans_cap_m, device=device, dtype=dtype).clamp_min(eps)
+        trans_flow_n = torch.clamp(trans_flow / trans_cap, -1.0, 1.0)
+
+        # 2) Rotation: cap in DEGREES -> radians, then per-node linear cap = theta * radius
+        rot_cap_per_node = (theta_max_rad.clamp_min(eps)) * kp_r         # [4,1] in meters
+        rot_cap_per_node = rot_cap_per_node[None, :, :].expand(T, -1, -1)  # [T,4,1]
+        rot_flow_n = torch.clamp(rot_flow / rot_cap_per_node, -1.0, 1.0)
+
+        # 3) Gripper: clamp to [-1,1] for safety (already small)
+        g_n = torch.clamp(g, -1.0, 1.0)
+
+        # concat: [tx,ty, rx,ry, g]
+        targets = torch.cat([trans_flow_n, rot_flow_n, g_n], dim=-1)    # [T,4,5]
         return targets
     
     def train_epoch(self, num_steps_per_epoch = 100):
