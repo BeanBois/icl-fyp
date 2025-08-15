@@ -73,7 +73,7 @@ class Trainer:
                 curr_obs, context, clean_actions
             ) 
 
-            actual_pn_denoising_dir_norm, = self.actions_to_per_node_target_normalised(
+            actual_pn_denoising_dir_norm = self.actions_to_per_node_target_normalised(
                 agent_keypoints, noisy_actions, clean_actions, agent.max_flow_translation, agent.max_flow_rotation
             )
             
@@ -89,40 +89,7 @@ class Trainer:
         # Single optimizer step after accumulating gradients from all batch samples
         self.optimizer.step()
         return total_loss / self.batch_size
-        
-    def train_step(self):
-        self.optimizer.zero_grad()
-        total_loss = 0.0
-        
-        # Get batch of training data
-        curr_obs_batch, context_batch, clean_actions_batch = self.data_generator.get_batch_samples(self.batch_size)
-        agent_keypoints = self.data_generator.get_agent_keypoints()
-        
-        # Process each sample in the batch
-        for i in range(self.batch_size):
-            curr_obs, context, clean_actions = curr_obs_batch[i], context_batch[i], clean_actions_batch[i]
-            
-            # Forward pass through agent - returns normalized predictions and normalized targets
-            predicted_per_node_noise, noisy_actions = self.agent(
-                curr_obs, context, clean_actions
-            ) 
 
-            # Convert normalized target noise to per-node format for comparison
-            actual_pn_denoising_dir = self.actions_to_per_node_target(
-                agent_keypoints, noisy_actions, clean_actions, agent.max_flow_translation, agent.max_flow_rotation
-            )
-            
-            assert predicted_per_node_noise.shape == actual_pn_denoising_dir.shape
-            
-            # MSE loss between normalized predictions and normalized targets
-            loss = nn.MSELoss()(predicted_per_node_noise, actual_pn_denoising_dir)
-            scaled_loss = loss / self.batch_size
-            scaled_loss.backward()
-            total_loss += loss.item()
-        
-        # Single optimizer step after accumulating gradients from all batch samples
-        self.optimizer.step()
-        return total_loss / self.batch_size
     
 
     def actions_to_per_node_target(

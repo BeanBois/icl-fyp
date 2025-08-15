@@ -71,11 +71,11 @@ class InstantPolicyAgent(nn.Module):
         self.max_flow_translation = max_flow_translation  # cm
         self.max_flow_rotation = torch.deg2rad(torch.tensor([max_flow_rotation], device=device))  # radians
 
-        self.t_embed_dim = self.node_embd_dim
+        self.t_embed_dim = self.node_embd_dim - agent_state_embd_dim
         self.t_embed_proj = nn.Sequential(
-            nn.Linear(self.t_embed_dim, self.node_embd_dim, device=self.device),
+            nn.Linear(self.t_embed_dim,self.t_embed_dim, device=self.device),
             nn.SiLU(),
-            nn.Linear(self.node_embd_dim, self.node_embd_dim, device=self.device)
+            nn.Linear(self.t_embed_dim, self.t_embed_dim, device=self.device)
         )
 
         self.pred_head_p = nn.Sequential(

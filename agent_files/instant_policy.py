@@ -142,12 +142,12 @@ class InstantPolicy(nn.Module):
                 agent_state = torch.tensor([graph.agent_state.value],device = self.device).float()
                 agent_state_emb = self.agent_state_embedder(agent_state)
                 agent_node_emb = self.agent_embedder(x).view(-1)
-                node_embd = torch.cat([agent_node_emb, agent_state_emb], dim = -1)
-                if t_embd is not None:
+                if t_embd is not None:  
                     t_vec = t_embd.view(-1)
-                    if t_vec.shape[0] != self.node_embd_dim:
-                        t_vec = t_vec[-self.node_embd_dim:]  # tolerate [1, D] etc.
-                    node_embd = node_embd + self.t_proj_action(t_vec)
+
+                    agent_node_emb = agent_node_emb + t_vec
+                node_embd = torch.cat([agent_node_emb, agent_state_emb], dim = -1)
+            
 
             else:
                 _index = index  -  self.num_agent_nodes # aget nodes always first nc implementation
