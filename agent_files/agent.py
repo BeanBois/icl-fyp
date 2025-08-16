@@ -473,30 +473,30 @@ class InstantPolicyAgent(nn.Module):
 
 
     # def _project_to_SE2_manifold(self, SE2_matrices):
-        """
-        Project matrices back to valid SE(2) manifold
-        """
-        batch_size = SE2_matrices.shape[0]
-        projected = torch.zeros_like(SE2_matrices)
+        # """
+        # Project matrices back to valid SE(2) manifold
+        # """
+        # batch_size = SE2_matrices.shape[0]
+        # projected = torch.zeros_like(SE2_matrices)
         
-        # Extract rotation part and re-orthogonalize using SVD
-        R = SE2_matrices[..., :2, :2]  # [batch, 2, 2]
-        U, S, V = torch.svd(R)
-        R_proj = U @ V.transpose(-2, -1)  # Closest orthogonal matrix
+        # # Extract rotation part and re-orthogonalize using SVD
+        # R = SE2_matrices[..., :2, :2]  # [batch, 2, 2]
+        # U, S, V = torch.svd(R)
+        # R_proj = U @ V.transpose(-2, -1)  # Closest orthogonal matrix
         
-        # Ensure proper rotation (det = 1)
-        det = torch.det(R_proj)
-        R_proj[det < 0] = R_proj[det < 0] @ torch.tensor([[-1, 0], [0, 1]], device=self.device, dtype=R_proj.dtype)
+        # # Ensure proper rotation (det = 1)
+        # det = torch.det(R_proj)
+        # R_proj[det < 0] = R_proj[det < 0] @ torch.tensor([[-1, 0], [0, 1]], device=self.device, dtype=R_proj.dtype)
         
-        # Keep translation as-is
-        t = SE2_matrices[..., :2, 2]
+        # # Keep translation as-is
+        # t = SE2_matrices[..., :2, 2]
         
-        # Reconstruct SE(2) matrix
-        projected[..., :2, :2] = R_proj
-        projected[..., :2, 2] = t
-        projected[..., 2, 2] = 1.0
+        # # Reconstruct SE(2) matrix
+        # projected[..., :2, :2] = R_proj
+        # projected[..., :2, 2] = t
+        # projected[..., 2, 2] = 1.0
         
-        return projected
+        # return projected
     
     ### Alternative ### 
     def _sample_SE2_noise_directly(self, batch_size):
